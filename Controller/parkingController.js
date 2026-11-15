@@ -1,5 +1,5 @@
 const pool = require('../Database/db');
-const { validateParkingDetails } = require('../Utils/parkingValidation');
+const { validateParkingDetails, parseParkingId } = require('../Utils/parkingValidation');
 
 const parkingController = {
     getAllParkings: async (req, res) => { 
@@ -7,7 +7,7 @@ const parkingController = {
             const result = await pool.query(
                 `SELECT id, name, location, created_at
                  FROM public.parkings
-                 WHERE owner_id = $1
+                 WHERE owner_id = $1 AND archived_at IS NULL
                  ORDER BY id`,
                 [req.user.id]
             );
@@ -52,8 +52,8 @@ const parkingController = {
     },
 
     updateParking: async (req, res) => {
-        const id = req.params?.id;
-        if (typeof id !== 'string' || !/^[1-9]\d*$/.test(id) || Number(id) > 2147483647) {
+        const id = parseParkingId(req.params?.id);
+        if (id === null) {
             return res.status(400).json({ message: 'Parking ID must be a positive integer up to 2147483647' });
         }
 
@@ -73,9 +73,9 @@ const parkingController = {
             const result = await pool.query(
                 `UPDATE public.parkings
                  SET name = COALESCE($1, name), location = COALESCE($2, location)
-                 WHERE id = $3 AND owner_id = $4
+                 WHERE id = $3 AND owner_id = $4 AND archived_at IS NULL
                  RETURNING id, name, location, created_at`,
-                [details.name, details.location, Number(id), req.user.id]
+                [details.name, details.location, id, req.user.id]
             );
 
             if (result.rows.length === 0) {
@@ -88,6 +88,32 @@ const parkingController = {
             });
         } catch (error) {
             console.error('Error updating parking:', error.message);
+            return res.status(500).json({ message: 'Internal server error' });
+        }
+    },
+
+    archiveParking: async (req, res) => {
+        const id = parseParkingId(req.params?.id);
+        if (id === null) {
+            return res.status(400).json({ message: 'Parking ID must be a positive integer up to 2147483647' });
+        }
+
+        try {
+            const result = await pool.query(
+                `UPDATE public.parkings
+                 SET archived_at = COALESCE(archived_at, NOW())
+                 WHERE id = $1 AND owner_id = $2
+                 RETURNING id`,
+                [id, req.user.id]
+            );
+
+            if (result.rows.length === 0) {
+                return res.status(404).json({ message: 'Parking lot not found' });
+            }
+
+            return res.status(204).send();
+        } catch (error) {
+            console.error('Error archiving parking:', error.message);
             return res.status(500).json({ message: 'Internal server error' });
         }
     }

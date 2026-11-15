@@ -50,14 +50,14 @@ Sending the current value again is allowed and returns `200`.
 
 - `400`: invalid ID, body, field value, or unsupported field.
 - `401`: missing, invalid, or expired access token.
-- `404`: the lot does not exist or belongs to another owner. The response is
+- `404`: the lot does not exist, is archived, or belongs to another owner. The response is
   the same for both cases: `Parking lot not found`.
 - `500`: unexpected database failure; database details are not returned.
 
 ## Database behavior
 
-One parameterized `UPDATE` includes both the parking ID and authenticated owner
-ID in its `WHERE` condition. There is no separate lookup before the update.
+One parameterized `UPDATE` includes the parking ID, authenticated owner ID, and
+`archived_at IS NULL` in its `WHERE` condition. There is no separate lookup before the update.
 This checks ownership and changes the row in one atomic statement.
 
 `COALESCE` means “use the first value that is not null.” Here, omitted fields

@@ -32,6 +32,7 @@ test('updates both fields with one query scoped to the parking ID and authentica
     const query = t.mock.method(pool, 'query', async (sql, values) => {
         assert.match(sql, /UPDATE public\.parkings/);
         assert.match(sql, /WHERE id = \$3 AND owner_id = \$4/);
+        assert.match(sql, /AND archived_at IS NULL/);
         assert.match(sql, /RETURNING id, name, location, created_at/);
         assert.deepEqual(values, ['Renamed lot', 'North', 12, '7']);
         return { rows: [parking] };

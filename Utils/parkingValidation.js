@@ -22,4 +22,10 @@ function validateParkingDetails({ name, location }, { partial = false } = {}) {
         location: location === undefined ? null : location.trim() };
 }
 
-module.exports = { validateParkingDetails };
+function parseParkingId(value) {
+    if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) return null;
+    const id = Number(value);
+    return id <= 2147483647 ? id : null;
+}
+
+module.exports = { validateParkingDetails, parseParkingId };

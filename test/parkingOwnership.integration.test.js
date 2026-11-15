@@ -209,6 +209,63 @@ test('parking migrations with real PostgreSQL', { skip: !connectionString }, asy
         assert.deepEqual((await pool.query('SELECT * FROM public.parkings WHERE id = $1', [another.id])).rows[0], another);
     });
 
+    await t.test('archiving preserves rows and hides them from active management', async context => {
+        const pool = await fixture(context);
+        await runMigrations(pool, 'up', quiet);
+        await addUser(pool, 42);
+        await addUser(pool, 99);
+        const owned = (await pool.query(`INSERT INTO public.parkings (name, location, owner_id)
+            VALUES ('Archived lot', 'North', 42) RETURNING *`)).rows[0];
+        const active = (await pool.query(`INSERT INTO public.parkings (name, location, owner_id)
+            VALUES ('Active lot', 'East', 42) RETURNING *`)).rows[0];
+        const other = (await pool.query(`INSERT INTO public.parkings (name, location, owner_id)
+            VALUES ('Other owner lot', 'South', 99) RETURNING *`)).rows[0];
+        await pool.query("INSERT INTO public.refresh_tokens (user_id, token_hash, expires_at) VALUES (42, 'archive-test-token', NOW() + INTERVAL '1 day')");
+        const usersBefore = (await pool.query('SELECT * FROM public.users ORDER BY id')).rows;
+        const sessionsBefore = (await pool.query('SELECT * FROM public.refresh_tokens ORDER BY id')).rows;
+        assert.equal(owned.archived_at, null);
+
+        const appPool = require('../Database/db');
+        const controller = require('../Controller/parkingController');
+        context.mock.method(appPool, 'query', (sql, values) => pool.query(sql, values));
+        function response() {
+            return { statusCode: 200, status(code) { this.statusCode = code; return this; },
+                json(body) { this.body = body; return this; },
+                send(body) { this.body = body; return this; } };
+        }
+
+        const denied = response();
+        await controller.archiveParking({ user: { id: '42' }, params: { id: String(other.id) } }, denied);
+        assert.equal(denied.statusCode, 404);
+        assert.deepEqual((await pool.query('SELECT * FROM public.parkings WHERE id = $1', [other.id])).rows[0], other);
+
+        const archived = response();
+        await controller.archiveParking({ user: { id: '42' }, params: { id: String(owned.id) },
+            body: { owner_id: 99 } }, archived);
+        assert.equal(archived.statusCode, 204);
+        assert.equal(archived.body, undefined);
+        const stored = (await pool.query('SELECT * FROM public.parkings WHERE id = $1', [owned.id])).rows[0];
+        assert.ok(stored.archived_at instanceof Date);
+        assert.deepEqual({ ...stored, archived_at: null }, owned);
+
+        const repeated = response();
+        await controller.archiveParking({ user: { id: '42' }, params: { id: String(owned.id) } }, repeated);
+        assert.equal(repeated.statusCode, 204);
+        const edited = response();
+        await controller.updateParking({ user: { id: '42' }, params: { id: String(owned.id) },
+            body: { name: 'Must not change' } }, edited);
+        assert.equal(edited.statusCode, 404);
+        assert.deepEqual((await pool.query('SELECT * FROM public.parkings WHERE id = $1', [owned.id])).rows[0], stored);
+
+        const listed = response();
+        await controller.getAllParkings({ user: { id: '42' }, query: { owner_id: '99', include_archived: 'true' } }, listed);
+        assert.deepEqual(listed.body, [{ id: active.id, name: active.name, location: active.location, created_at: active.created_at }]);
+        assert.equal((await pool.query('SELECT COUNT(*)::integer AS count FROM public.parkings')).rows[0].count, 3);
+        assert.deepEqual((await pool.query('SELECT * FROM public.users ORDER BY id')).rows, usersBefore);
+        assert.deepEqual((await pool.query('SELECT * FROM public.refresh_tokens ORDER BY id')).rows, sessionsBefore);
+        assert.deepEqual((await pool.query('SELECT * FROM public.parkings WHERE id = $1', [active.id])).rows[0], active);
+    });
+
     for (const ids of [[], [42, 99]]) {
         await t.test(`existing lots with ${ids.length} users roll back without assigning ownership`, async context => {
             const pool = await fixture(context);

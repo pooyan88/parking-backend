@@ -20,6 +20,7 @@ test('listing uses the verified owner ID and ignores client ownership fields', a
     const ownParkings = [{ id: 12, name: 'Owner A lot', location: 'North' }];
     const query = t.mock.method(pool, 'query', async (sql, parameters) => {
         assert.match(sql, /WHERE\s+owner_id\s*=\s*\$1/i);
+        assert.match(sql, /AND archived_at IS NULL/i);
         assert.match(sql, /ORDER BY id/i);
         assert.deepEqual(parameters, ['7']);
         return { rows: ownParkings };
