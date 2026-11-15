@@ -618,6 +618,86 @@ test('parking migrations with real PostgreSQL', { skip: !connectionString }, asy
         assert.deepEqual((await pool.query('SELECT * FROM public.parking_slots ORDER BY id')).rows, beforeArchive);
     });
 
+    await t.test('slot updates preserve identity and enforce maintenance rules and code uniqueness', async context => {
+        const pool = await fixture(context);
+        await runMigrations(pool, 'up', quiet);
+        await addUser(pool, 42);
+        await addUser(pool, 99);
+        const [owned, second, other] = (await pool.query(`INSERT INTO public.parkings (name, owner_id)
+            VALUES ('Owner lot', 42), ('Second lot', 42), ('Other owner lot', 99) RETURNING id`)).rows;
+        const [firstFloor, nextFloor, crossFloor, foreignFloor] = (await pool.query(`
+            INSERT INTO public.parking_floors (parking_id, floor_number)
+            VALUES ($1, 0), ($1, 1), ($2, 0), ($3, 0) RETURNING id`, [owned.id, second.id, other.id])).rows;
+        const [target, neighbor, crossLot, foreign] = (await pool.query(`
+            INSERT INTO public.parking_slots (parking_id, floor_id, code)
+            VALUES ($1, $2, 'A-101'), ($1, $3, 'B-101'), ($4, $5, 'A-101'), ($6, $7, 'A-101')
+            RETURNING *`, [owned.id, firstFloor.id, nextFloor.id, second.id, crossFloor.id, other.id, foreignFloor.id])).rows;
+        const appPool = require('../Database/db');
+        const slots = require('../Controller/parkingSlotController');
+        context.mock.method(appPool, 'connect', () => pool.connect());
+        context.mock.method(console, 'error', () => {});
+        async function update(parkingId, floorId, slotId, body) {
+            const res = { statusCode: 200, status(code) { this.statusCode = code; return this; },
+                json(body) { this.body = body; return this; } };
+            await slots.updateSlot({ user: { id: '42' }, params: {
+                parkingId: String(parkingId), floorId: String(floorId), slotId: String(slotId)
+            }, body }, res);
+            return res;
+        }
+        function edit(body) { return update(owned.id, firstFloor.id, target.id, body); }
+        async function stored(id = target.id) {
+            return (await pool.query('SELECT * FROM public.parking_slots WHERE id = $1', [id])).rows[0];
+        }
+
+        const before = (await pool.query('SELECT * FROM public.parking_slots ORDER BY id')).rows;
+        for (const [parkingId, floorId, slotId] of [[owned.id, firstFloor.id, neighbor.id],
+            [owned.id, crossFloor.id, target.id], [other.id, foreignFloor.id, foreign.id],
+            [owned.id, firstFloor.id, crossLot.id], [owned.id, firstFloor.id, 2147483647]]) {
+            const denied = await update(parkingId, floorId, slotId, { code: 'Must not change' });
+            assert.equal(denied.statusCode, 404);
+            assert.deepEqual(denied.body, { message: 'Parking slot not found' });
+        }
+        assert.deepEqual((await pool.query('SELECT * FROM public.parking_slots ORDER BY id')).rows, before);
+        assert.equal((await edit({ code: 'Must not change', maintenance_note: 'Repair' })).statusCode, 400);
+        assert.deepEqual(await stored(), target);
+
+        assert.equal((await edit({ operational_status: 'maintenance', maintenance_note: ' Repair ' })).statusCode, 200);
+        assert.deepEqual(await stored(), { ...target, operational_status: 'maintenance', maintenance_note: 'Repair' });
+        assert.equal((await edit({ code: ' Renamed ' })).statusCode, 200);
+        assert.deepEqual(await stored(), { ...target, code: 'Renamed', operational_status: 'maintenance', maintenance_note: 'Repair' });
+        assert.equal((await edit({ maintenance_note: ' Updated repair ' })).statusCode, 200);
+        assert.equal((await stored()).maintenance_note, 'Updated repair');
+        assert.equal((await edit({ maintenance_note: null })).statusCode, 200);
+        assert.deepEqual(await stored(), { ...target, code: 'Renamed', operational_status: 'maintenance' });
+        assert.equal((await edit({ maintenance_note: 'Repair again' })).statusCode, 200);
+        assert.equal((await edit({ operational_status: 'usable' })).statusCode, 200);
+        assert.deepEqual(await stored(), { ...target, code: 'Renamed' });
+
+        const beforeConflict = await stored();
+        const duplicate = await edit({ code: 'b-101', operational_status: 'maintenance', maintenance_note: 'Must roll back' });
+        assert.equal(duplicate.statusCode, 409);
+        assert.deepEqual(await stored(), beforeConflict);
+        const concurrent = await Promise.all([
+            edit({ code: 'RACE' }), update(owned.id, nextFloor.id, neighbor.id, { code: 'race' })
+        ]);
+        assert.deepEqual(concurrent.map(res => res.statusCode).sort(), [200, 409]);
+        assert.equal((await pool.query("SELECT COUNT(*)::integer AS count FROM public.parking_slots WHERE parking_id = $1 AND LOWER(code) = 'race'",
+            [owned.id])).rows[0].count, 1);
+
+        await pool.query('UPDATE public.parking_slots SET archived_at = NOW() WHERE id = $1', [target.id]);
+        const archived = await stored();
+        assert.equal((await edit({ operational_status: 'maintenance' })).statusCode, 404);
+        assert.deepEqual(await stored(), archived);
+        const neighborBefore = await stored(neighbor.id);
+        await pool.query('UPDATE public.parking_floors SET archived_at = NOW() WHERE id = $1', [nextFloor.id]);
+        assert.equal((await update(owned.id, nextFloor.id, neighbor.id, { code: 'Must not change' })).statusCode, 404);
+        assert.deepEqual(await stored(neighbor.id), neighborBefore);
+        await pool.query('UPDATE public.parkings SET archived_at = NOW() WHERE id = $1', [second.id]);
+        assert.equal((await update(second.id, crossFloor.id, crossLot.id, { code: 'Must not change' })).statusCode, 404);
+        assert.deepEqual(await stored(crossLot.id), crossLot);
+        assert.deepEqual(await stored(foreign.id), foreign);
+    });
+
     await t.test('slot creation cannot proceed when a concurrent floor archive commits first', async context => {
         const pool = await fixture(context);
         await runMigrations(pool, 'up', quiet);

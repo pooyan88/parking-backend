@@ -83,8 +83,8 @@ parent archiving. Failure rolls back; a failed rollback removes the connection
 from the pool. Database uniqueness also protects concurrent code creation.
 
 `operational_status` describes physical condition: `usable` or `maintenance`.
-New slots always start as `usable`, with no maintenance note. This feature does
-not yet expose editing or maintenance controls.
+New slots always start as `usable`, with no maintenance note. See
+[slot updates](parking-slot-updates.md) for code and maintenance controls.
 
 There is no stored `is_available` or `is_occupied` flag. A usable slot is not
 automatically free to rent: the contract feature must check overlapping rental
@@ -92,7 +92,7 @@ periods. That feature will calculate available, occupied, and reserved states
 from contracts. This feature creates no contracts or double-booking protection.
 
 Archiving a floor or lot preserves the slots and hides them through parent
-checks. Individual slot archiving and editing are later features. Slot counts
+checks. Individual slot archiving is a later feature. Slot counts
 and occupancy statistics will be calculated from the underlying data later.
 
 ## Verification
