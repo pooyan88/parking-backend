@@ -31,15 +31,16 @@ time. No restore or archived-list endpoint is included in this feature.
 
 ## Related resources and rental history
 
-There are no floors, slots, customers, or rental contracts in the current
-schema. Archiving keeps the parking row now, so later references and history
-can remain intact.
+Floors are preserved when a lot is archived. Their create and list endpoints
+check the parent lot's archive state, so they reject an archived lot with `404`.
+There are no slots, customers, or rental contracts yet. Archiving keeps the
+parking row so later references and history can remain intact.
 
 As those features are added:
 
-- Floors and slots under an archived lot must be excluded from active
-  management and new bookings. The parent's archive state applies without
-  rewriting each child row.
+- Floor creation and listing already check the parent archive state. Future
+  floor actions and slot bookings must do the same. The parent's archive state
+  applies without rewriting each child row.
 - Customers belong to the owner and must remain available for other lots.
 - Contract history must remain available. Before the contract feature is
   usable, archiving must reject current or future confirmed rentals with `409`.

@@ -50,8 +50,8 @@ creation dates are unknown. Archived lots are excluded.
 
 See [parking creation](parking-creation.md) for `POST /parkings`, and
 [parking updates](parking-updates.md) for `PATCH /parkings/:id`, and
-[parking archiving](parking-archiving.md) for `DELETE /parkings/:id`. Floors and
-other resources belong to later features.
+[parking archiving](parking-archiving.md) for `DELETE /parkings/:id`. See
+[parking floors](parking-floors.md) for floor creation and listing inside a lot.
 
 ## Tests
 
