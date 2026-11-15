@@ -43,4 +43,13 @@ const rentalController = {
         } catch (error) { return failure(res, error); }
     }
 };
+for (const action of ['cancel', 'end', 'extend', 'renew', 'move']) {
+    rentalController[action] = async (req, res) => {
+        try {
+            const contractId = input.id(req.params.id, 'contract ID');
+            const contract = await require('../Service/rentalLifecycle').run(req.user.id, contractId, action, req.body);
+            return res.status(action === 'renew' || action === 'move' ? 201 : 200).json({ contract });
+        } catch (error) { return failure(res, error); }
+    };
+}
 module.exports = { ...rentalController, failure };

@@ -55,3 +55,34 @@ Archiving a lot, floor, slot, or customer, or starting slot maintenance, now
 returns 409 while current/future confirmed contracts remain. Parent/customer
 locks serialize these actions with booking creation and later lifecycle changes.
 There are no hard-delete endpoints for business history.
+
+## Contract actions
+
+POST `/contracts/:id/cancel` cancels only upcoming contracts. POST
+`/contracts/:id/end` ends only active contracts at database time, preserving
+the agreed end and actual historical usage. Both accept an empty body and
+return 200. Already ended/cancelled contracts reject further actions with 409.
+
+POST `/contracts/:id/extend` accepts a later ends_at and optional price/currency.
+It only extends non-expired agreements, checks overlaps, records the old terms,
+and marks the revised period custom. No price prorating happens automatically.
+
+POST `/contracts/:id/renew` creates a linked new agreement starting exactly at
+the previous end, including continuous backdated renewal after expiration.
+It inherits type/price unless supplied. Calendar renewals preserve the original
+billing anchor: January 31 → February 28 → March 31, without date drift. Custom
+renewals need ends_at; hourly renewals can inherit their prior whole-hour period.
+Only one non-cancelled renewal can link to the same source. It returns 201.
+
+POST `/contracts/:id/move` accepts a different slot_id and optional price/currency.
+It atomically ends the active old agreement (or cancels an upcoming one), creates
+a linked agreement for the new slot, and preserves the agreed end. Calendar
+agreements retain their billing anchor and timezone. Other moved agreements
+become custom because the remaining period can be a partial hour. It returns
+201. Source and destination must be active, owned resources; the destination
+must be usable. A failed move rolls back the old closure and all events.
+
+Moves can cross the owner's lots. All affected lots, floors, and slots are
+locked in ascending ID order to reduce deadlocks. New bookings also verify an
+active owner-level customer. There are no automatic refunds, charges, or price
+changes: negotiate price explicitly when needed. Read history through events.
