@@ -14,6 +14,7 @@ app.use(parkingFloorRouter);
 app.use(parkingSlotRouter);
 app.use(require('./Router/customerRouter'));
 app.use(require('./Router/rentalRouter'));
+app.use(require('./Router/reportRouter'));
 
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
