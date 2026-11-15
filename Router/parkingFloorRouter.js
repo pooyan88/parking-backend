@@ -6,5 +6,6 @@ const router = express.Router();
 
 router.get('/parkings/:parkingId/floors', authMiddleware, controller.getFloors);
 router.post('/parkings/:parkingId/floors', authMiddleware, controller.createFloor);
+router.patch('/parkings/:parkingId/floors/:floorId', authMiddleware, controller.updateFloor);
 
 module.exports = router;

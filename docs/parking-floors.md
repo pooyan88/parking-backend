@@ -79,7 +79,8 @@ Duplicate floor numbers are also rejected by PostgreSQL, including concurrent
 requests. A rollback failure removes that connection from the pool.
 
 Archiving a lot keeps its floors in the database but hides them through the
-parent check. Editing and archiving individual floors are later features.
+parent check. See [floor updates](parking-floor-updates.md) for editing.
+Archiving individual floors is a later feature.
 Floor numbers remain reserved even if a floor is archived later.
 
 Slot counts and occupancy will be calculated from slots and rental periods
