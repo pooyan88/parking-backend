@@ -5,5 +5,6 @@ const authMiddleware = require('../Middleware/authMiddleware');
 const router = express.Router();
 
 router.get('/parkings', authMiddleware, controller.getAllParkings);
+router.post('/parkings', authMiddleware, controller.createParking);
 
 module.exports = router;

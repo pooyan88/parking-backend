@@ -40,13 +40,15 @@ Ubuntu server yet.
 
 The controller passes only `req.user.id` to the parameterized ownership filter.
 Client fields such as `owner_id` or `user_id` cannot select another owner.
-The response remains an array with `id`, `name`, and `location`, ordered by ID.
+The response is an array with `id`, `name`, `location`, and `created_at`, ordered
+by ID. Older lots have `created_at: null` because their creation dates are unknown.
 
 - `200`: this owner's parking lots, or `[]` if there are none.
 - `401`: access token is missing, invalid, or expired.
 - `500`: database failure, without database details in the response.
 
-Creation, editing, deletion, floors, and other resources belong to later features.
+See [parking creation](parking-creation.md) for `POST /parkings`. Editing,
+deletion, floors, and other resources belong to later features.
 
 ## Tests
 
