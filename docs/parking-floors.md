@@ -83,8 +83,9 @@ parent check. See [floor updates](parking-floor-updates.md) for editing.
 See [floor archiving](parking-floor-archiving.md) for soft deletion.
 Floor numbers remain reserved after archiving.
 
-Slot counts and occupancy will be calculated from slots and rental periods
-when those features exist. There are no capacity or occupancy counters here.
+See [parking slots](parking-slots.md) for slot creation and listing inside a
+floor. Slot counts and occupancy statistics will be calculated from slots and
+rental periods later. There are no capacity or occupancy counters here.
 
 ## Verification
 

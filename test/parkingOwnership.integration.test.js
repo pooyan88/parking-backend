@@ -516,6 +516,143 @@ test('parking migrations with real PostgreSQL', { skip: !connectionString }, asy
         }
     });
 
+    await t.test('slots enforce lot-wide codes, consistent parents, defaults, and archive visibility', async context => {
+        const pool = await fixture(context);
+        await runMigrations(pool, 'up', quiet);
+        await addUser(pool, 42);
+        await addUser(pool, 99);
+        const [owned, second, other] = (await pool.query(`INSERT INTO public.parkings (name, owner_id)
+            VALUES ('Owner lot', 42), ('Second lot', 42), ('Other owner lot', 99) RETURNING id`)).rows;
+        const [basement, ground, secondFloor, foreignFloor] = (await pool.query(`
+            INSERT INTO public.parking_floors (parking_id, floor_number)
+            VALUES ($1, -1), ($1, 0), ($2, 0), ($3, 0) RETURNING id, parking_id`,
+            [owned.id, second.id, other.id])).rows;
+        const appPool = require('../Database/db');
+        const slots = require('../Controller/parkingSlotController');
+        const floors = require('../Controller/parkingFloorController');
+        const parkings = require('../Controller/parkingController');
+        context.mock.method(appPool, 'query', (sql, values) => pool.query(sql, values));
+        context.mock.method(appPool, 'connect', () => pool.connect());
+        context.mock.method(console, 'error', () => {});
+        function response() {
+            return { statusCode: 200, status(code) { this.statusCode = code; return this; },
+                json(body) { this.body = body; return this; }, send() { return this; } };
+        }
+        function request(parkingId, floorId, body, owner = '42') {
+            return { user: { id: owner }, params: { parkingId: String(parkingId), floorId: String(floorId) }, body };
+        }
+        async function create(parkingId, floorId, code, owner = '42') {
+            const res = response();
+            await slots.createSlot(request(parkingId, floorId, { code }, owner), res);
+            return res;
+        }
+        async function list(parkingId, floorId, owner = '42') {
+            const res = response();
+            await slots.getSlots(request(parkingId, floorId, undefined, owner), res);
+            return res;
+        }
+
+        const empty = await list(owned.id, basement.id);
+        assert.equal(empty.statusCode, 200);
+        assert.deepEqual(empty.body, []);
+        const created = await create(owned.id, basement.id, ' A-101 ');
+        assert.equal(created.statusCode, 201);
+        const first = created.body.slot;
+        assert.equal(first.code, 'A-101');
+        assert.equal(first.parking_id, owned.id);
+        assert.equal(first.floor_id, basement.id);
+        assert.equal(first.operational_status, 'usable');
+        assert.equal(first.maintenance_note, null);
+        assert.ok(first.created_at instanceof Date);
+        assert.equal((await create(owned.id, ground.id, 'a-101')).statusCode, 409);
+        assert.equal((await create(second.id, secondFloor.id, 'A-101')).statusCode, 201);
+        assert.equal((await create(other.id, foreignFloor.id, 'A-101', '99')).statusCode, 201);
+        for (const [parkingId, floorId] of [[owned.id, secondFloor.id], [other.id, foreignFloor.id],
+            [owned.id, 2147483647], [2147483647, basement.id]]) {
+            assert.equal((await create(parkingId, floorId, 'Denied')).statusCode, 404);
+            assert.equal((await list(parkingId, floorId)).statusCode, 404);
+        }
+        const concurrent = await Promise.all([
+            create(owned.id, ground.id, 'RACE-101'), create(owned.id, ground.id, 'race-101')
+        ]);
+        assert.deepEqual(concurrent.map(res => res.statusCode).sort(), [201, 409]);
+
+        const maintenance = await create(owned.id, basement.id, 'B-101');
+        assert.equal(maintenance.statusCode, 201);
+        await pool.query("UPDATE public.parking_slots SET operational_status = 'maintenance', maintenance_note = 'Repair' WHERE id = $1",
+            [maintenance.body.slot.id]);
+        const listed = await list(owned.id, basement.id);
+        assert.deepEqual(listed.body.map(row => row.code), ['A-101', 'B-101']);
+        assert.equal(listed.body[1].operational_status, 'maintenance');
+        assert.equal(listed.body[1].maintenance_note, 'Repair');
+        assert.ok(!Object.hasOwn(listed.body[0], 'is_available'));
+        assert.equal((await list(other.id, foreignFloor.id, '99')).body.length, 1);
+
+        await assert.rejects(pool.query(`INSERT INTO public.parking_slots (parking_id, floor_id, code)
+            VALUES ($1, $2, 'Wrong parent')`, [owned.id, secondFloor.id]), { code: '23503' });
+        await assert.rejects(pool.query(`INSERT INTO public.parking_slots (parking_id, floor_id, code)
+            VALUES ($1, $2, 'a-101')`, [owned.id, ground.id]), { code: '23505' });
+        for (const code of ['', ' padded ']) {
+            await assert.rejects(pool.query('INSERT INTO public.parking_slots (parking_id, floor_id, code) VALUES ($1, $2, $3)',
+                [owned.id, ground.id, code]), { code: '23514' });
+        }
+        await assert.rejects(pool.query(`INSERT INTO public.parking_slots (parking_id, floor_id, code, operational_status)
+            VALUES ($1, $2, 'Invalid state', 'occupied')`, [owned.id, ground.id]), { code: '23514' });
+        await assert.rejects(pool.query('DELETE FROM public.parking_floors WHERE id = $1', [basement.id]), { code: '23503' });
+
+        await pool.query('UPDATE public.parking_slots SET archived_at = NOW() WHERE id = $1', [first.id]);
+        assert.deepEqual((await list(owned.id, basement.id)).body.map(row => row.code), ['B-101']);
+        assert.equal((await create(owned.id, ground.id, 'a-101')).statusCode, 409);
+        const beforeArchive = (await pool.query('SELECT * FROM public.parking_slots ORDER BY id')).rows;
+        const archivedFloor = response();
+        await floors.archiveFloor(request(owned.id, basement.id), archivedFloor);
+        assert.equal(archivedFloor.statusCode, 204);
+        assert.equal((await list(owned.id, basement.id)).statusCode, 404);
+        assert.equal((await create(owned.id, basement.id, 'New code')).statusCode, 404);
+        assert.equal((await create(owned.id, ground.id, 'b-101')).statusCode, 409);
+        const archivedParking = response();
+        await parkings.archiveParking({ user: { id: '42' }, params: { id: String(second.id) } }, archivedParking);
+        assert.equal(archivedParking.statusCode, 204);
+        assert.equal((await list(second.id, secondFloor.id)).statusCode, 404);
+        assert.equal((await create(second.id, secondFloor.id, 'New code')).statusCode, 404);
+        assert.deepEqual((await pool.query('SELECT * FROM public.parking_slots ORDER BY id')).rows, beforeArchive);
+    });
+
+    await t.test('slot creation cannot proceed when a concurrent floor archive commits first', async context => {
+        const pool = await fixture(context);
+        await runMigrations(pool, 'up', quiet);
+        await addUser(pool, 42);
+        const parking = (await pool.query("INSERT INTO public.parkings (name, owner_id) VALUES ('Slot archive race', 42) RETURNING id")).rows[0];
+        const floor = (await pool.query('INSERT INTO public.parking_floors (parking_id, floor_number) VALUES ($1, 0) RETURNING id', [parking.id])).rows[0];
+        const appPool = require('../Database/db');
+        const slots = require('../Controller/parkingSlotController');
+        context.mock.method(appPool, 'connect', () => pool.connect());
+        const archiver = await pool.connect();
+        let archiving = false;
+        try {
+            await archiver.query('BEGIN');
+            archiving = true;
+            await archiver.query('SELECT id FROM public.parkings WHERE id = $1 FOR UPDATE', [parking.id]);
+            await archiver.query('UPDATE public.parking_floors SET archived_at = NOW() WHERE id = $1', [floor.id]);
+            const res = { statusCode: 200, status(code) { this.statusCode = code; return this; },
+                json(body) { this.body = body; return this; } };
+            const pending = slots.createSlot({ user: { id: '42' }, params: {
+                parkingId: String(parking.id), floorId: String(floor.id)
+            }, body: { code: 'A-101' } }, res);
+            await archiver.query('COMMIT');
+            archiving = false;
+            await pending;
+            assert.equal(res.statusCode, 404);
+            assert.equal((await pool.query('SELECT COUNT(*)::integer AS count FROM public.parking_slots')).rows[0].count, 0);
+        } finally {
+            try {
+                if (archiving) await archiver.query('ROLLBACK');
+            } finally {
+                archiver.release();
+            }
+        }
+    });
+
     for (const ids of [[], [42, 99]]) {
         await t.test(`existing lots with ${ids.length} users roll back without assigning ownership`, async context => {
             const pool = await fixture(context);

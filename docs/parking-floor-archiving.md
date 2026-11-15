@@ -43,9 +43,9 @@ roll back the transaction. A failed rollback removes that connection from the
 pool. Locking the same parent as floor creation and editing coordinates these
 actions with archiving and prevents changes after the parent is archived.
 
-There are no slots, customers, or contracts yet. When slots are added, they
-must check the floor archive state before creation or booking. Archiving a
-floor must preserve its slots and history, without rewriting each child row.
+Slot creation and listing check the floor archive state. Archiving a floor
+preserves its slots without rewriting each child row. Future booking actions
+must also check that state. There are no customers or contracts yet.
 Before rentals are enabled, add a `409` guard for current or future confirmed
 contracts, with consistent locking between booking and archiving. Owner-level
 customers remain available for other floors and lots.
