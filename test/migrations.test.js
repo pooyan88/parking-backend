@@ -3,6 +3,7 @@ const test = require('node:test');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
+const { types } = require('pg');
 const { loadMigrations: loadFromDirectory, validateHistory, runMigrations: runWithPool } = require('../Database/migrationRunner');
 const { verifyBaseline } = require('../Database/migrationBaseline');
 
@@ -164,6 +165,34 @@ test('baseline records all four files without running business DDL or touching b
     assert.ok(pool.calls.at(-1).sql.includes('pg_advisory_unlock'));
 });
 
+test('baseline recognizes constraint columns decoded by the installed PostgreSQL driver', async t => {
+    const pool = database({ existing: true });
+    const query = pool.client.query.bind(pool.client);
+    t.mock.method(pool.client, 'query', async (sql, values) => {
+        const result = await query(sql, values);
+        if (!sql.includes('FROM pg_catalog.pg_constraint con')) return result;
+
+        // PostgreSQL attname has type name (array OID 1003). Casting the selected
+        // name to text makes a text array (OID 1009). Use the real pg parsers:
+        // otherwise a hand-built array fixture hides the production failure.
+        const selections = [...sql.matchAll(/ARRAY\(SELECT a\.attname(::text)?/g)];
+        assert.equal(selections.length, 2);
+        const parseColumns = types.getTypeParser(selections[0][1] ? 1009 : 1003);
+        const parseReferences = types.getTypeParser(selections[1][1] ? 1009 : 1003);
+        return {
+            rows: result.rows.map(row => ({
+                ...row,
+                columns: parseColumns(`{${row.columns.join(',')}}`),
+                referenced_columns: parseReferences(`{${row.referenced_columns.join(',')}}`)
+            }))
+        };
+    });
+
+    await runMigrations(pool, 'baseline', { log() {} });
+    assert.equal(pool.history.length, 4);
+    assert.ok(pool.history.every(row => row.source === 'baseline'));
+});
+
 test('baseline rejects missing tables before recording history', async () => {
     const schema = schemaFixture();
     schema.tables.pop();
@@ -191,6 +220,8 @@ test('baseline rejects wrong timestamp types, null rules, defaults, and unowned 
 
 test('baseline rejects missing uniqueness and changed refresh-token FK behavior', async () => {
     for (const mutation of [
+        schema => { schema.constraints = schema.constraints.filter(row => row.table_name !== 'parkings'); },
+        schema => { schema.constraints[0].columns = ['id', 'name']; },
         schema => { schema.constraints = schema.constraints.filter(row => row.columns[0] !== 'username'); },
         schema => { schema.constraints.at(-1).delete_action = 'a'; },
         schema => { schema.constraints.at(-1).referenced_schema = 'other'; },

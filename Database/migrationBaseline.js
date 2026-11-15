@@ -114,13 +114,15 @@ async function verifyBaseline(client) {
         }
     }
 
+    // Cast catalog names to text so pg decodes the result as a JavaScript array.
+    // name[] is returned as a raw string by the installed pg type parsers.
     const constraints = await client.query(`
         SELECT c.relname AS table_name, con.contype AS type,
-               ARRAY(SELECT a.attname FROM unnest(con.conkey) WITH ORDINALITY AS k(num, pos)
+               ARRAY(SELECT a.attname::text FROM unnest(con.conkey) WITH ORDINALITY AS k(num, pos)
                      JOIN pg_catalog.pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.num
                      ORDER BY k.pos) AS columns,
                rn.nspname AS referenced_schema, rc.relname AS referenced_table,
-               ARRAY(SELECT a.attname FROM unnest(con.confkey) WITH ORDINALITY AS k(num, pos)
+               ARRAY(SELECT a.attname::text FROM unnest(con.confkey) WITH ORDINALITY AS k(num, pos)
                      JOIN pg_catalog.pg_attribute a ON a.attrelid = con.confrelid AND a.attnum = k.num
                      ORDER BY k.pos) AS referenced_columns,
                con.confdeltype AS delete_action, con.convalidated AS validated,

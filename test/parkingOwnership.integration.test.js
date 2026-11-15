@@ -87,6 +87,17 @@ test('ownership migration with real PostgreSQL', { skip: !connectionString }, as
         const usersBefore = (await pool.query('SELECT * FROM public.users ORDER BY id')).rows;
         const tokensBefore = (await pool.query('SELECT * FROM public.refresh_tokens ORDER BY id')).rows;
         const parkingsBefore = (await pool.query('SELECT id, name, location FROM public.parkings ORDER BY id')).rows;
+
+        // Reproduce an existing database that predates migration tracking.
+        // This is the isolated, disposable test database created above.
+        await pool.query('DROP TABLE public.schema_migrations');
+        await runMigrations(pool, 'baseline', quiet);
+        assert.deepEqual((await pool.query('SELECT version, source FROM public.schema_migrations ORDER BY version')).rows,
+            [1, 2, 3, 4].map(version => ({ version, source: 'baseline' })));
+        assert.deepEqual((await pool.query('SELECT * FROM public.users ORDER BY id')).rows, usersBefore);
+        assert.deepEqual((await pool.query('SELECT * FROM public.refresh_tokens ORDER BY id')).rows, tokensBefore);
+        assert.deepEqual((await pool.query('SELECT id, name, location FROM public.parkings ORDER BY id')).rows, parkingsBefore);
+
         await runMigrations(pool, 'up', quiet);
         assert.deepEqual((await pool.query('SELECT * FROM public.users ORDER BY id')).rows, usersBefore);
         assert.deepEqual((await pool.query('SELECT * FROM public.refresh_tokens ORDER BY id')).rows, tokensBefore);
