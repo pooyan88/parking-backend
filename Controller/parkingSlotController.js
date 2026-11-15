@@ -3,6 +3,7 @@ const { parseParkingId } = require('../Utils/parkingValidation');
 const { validateParkingSlot } = require('../Utils/parkingSlotValidation');
 const { transaction } = require('../Database/transaction');
 const { HttpError, sendError } = require('../Utils/httpErrors');
+const { assertNoBookings } = require('../Service/rentalGuards');
 
 const parkingSlotController = {
     getSlots: async (req, res) => {
@@ -157,6 +158,9 @@ const parkingSlotController = {
             }
 
             const status = details.operationalStatus ?? slot.rows[0].operational_status;
+            if (status === 'maintenance' && slot.rows[0].operational_status !== 'maintenance') {
+                await assertNoBookings(client, { ownerId: req.user.id, parkingId, floorId, slotId });
+            }
             if (status === 'usable' && details.hasMaintenanceNote && details.maintenanceNote !== null) {
                 await client.query('ROLLBACK');
                 transactionStarted = false;
@@ -189,6 +193,7 @@ const parkingSlotController = {
                 }
             }
             console.error('Error updating parking slot:', error.message);
+            if (error instanceof HttpError && !connectionError) return res.status(error.status).json({ message: error.message });
             if (!connectionError && error.code === '23505' && error.constraint === 'parking_slots_parking_id_code_key') {
                 return res.status(409).json({ message: 'This slot code already exists in this parking lot' });
             }
@@ -213,6 +218,7 @@ const parkingSlotController = {
                 const floor = await client.query(`SELECT id FROM public.parking_floors
                     WHERE id = $1 AND parking_id = $2 AND archived_at IS NULL FOR UPDATE`, [floorId, parkingId]);
                 if (!floor.rows.length) throw new HttpError(404, 'Parking slot not found');
+                await assertNoBookings(client, { ownerId: req.user.id, parkingId, floorId, slotId });
                 const result = await client.query(`UPDATE public.parking_slots
                     SET archived_at = COALESCE(archived_at, NOW())
                     WHERE id = $1 AND floor_id = $2 AND parking_id = $3 RETURNING id`, [slotId, floorId, parkingId]);

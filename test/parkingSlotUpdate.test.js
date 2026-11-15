@@ -64,9 +64,10 @@ test('slot update locks the owner\'s active lot, matching floor, and matching sl
     assert.match(db.calls[3].sql, /WHERE id = \$1 AND floor_id = \$2 AND parking_id = \$3 AND archived_at IS NULL/);
     assert.deepEqual(db.calls[3].values, [1, 2, 12]);
     assert.ok(db.calls.slice(1, 4).every(call => call.sql.includes('FOR UPDATE')));
-    assert.match(db.calls[4].sql, /WHERE id = \$4 AND floor_id = \$5 AND parking_id = \$6 AND archived_at IS NULL/);
-    assert.deepEqual(db.calls[4].values, ['B-101', 'maintenance', 'Repair', 1, 2, 12]);
-    assert.equal(db.calls[5].sql, 'COMMIT');
+    const update = db.calls.find(call => call.sql.includes('UPDATE public.parking_slots'));
+    assert.match(update.sql, /WHERE id = \$4 AND floor_id = \$5 AND parking_id = \$6 AND archived_at IS NULL/);
+    assert.deepEqual(update.values, ['B-101', 'maintenance', 'Repair', 1, 2, 12]);
+    assert.equal(db.calls.at(-1).sql, 'COMMIT');
     assert.deepEqual(db.releases, [undefined]);
     assert.equal(res.statusCode, 200);
     assert.equal(res.body.slot.code, 'B-101');
@@ -90,8 +91,9 @@ test('partial updates preserve omitted state and support clearing notes and retu
         const res = response();
         await controller.updateSlot(request(body), res);
         assert.equal(res.statusCode, 200);
-        assert.match(db.calls[4].sql, /code = COALESCE\(\$1, code\)/);
-        assert.deepEqual(db.calls[4].values, expected);
+        const update = db.calls.find(call => call.sql.includes('UPDATE public.parking_slots'));
+        assert.match(update.sql, /code = COALESCE\(\$1, code\)/);
+        assert.deepEqual(update.values, expected);
         assert.equal(res.body.slot.operational_status, expected[1]);
         assert.equal(res.body.slot.maintenance_note, expected[2]);
         connect.mock.restore();
@@ -164,7 +166,7 @@ test('Unicode length boundaries and SQL-looking values remain query parameters',
     const res = response();
     await controller.updateSlot(request({ code, operational_status: 'maintenance', maintenance_note: note }), res);
     assert.equal(res.statusCode, 200);
-    assert.deepEqual(db.calls[4].values, [code, 'maintenance', note, 1, 2, 12]);
+    assert.deepEqual(db.calls.find(call => call.sql.includes('UPDATE public.parking_slots')).values, [code, 'maintenance', note, 1, 2, 12]);
     const sqlText = "Renamed'; DROP TABLE users; --";
     await controller.updateSlot(request({ code: sqlText }), response());
     const update = db.calls.filter(call => call.sql.includes('UPDATE public.parking_slots')).at(-1);

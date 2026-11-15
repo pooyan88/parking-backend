@@ -9,4 +9,4 @@ per owner using LOWER, including archived customers. PATCH accepts the same
 fields; null clears phone. DELETE archives, preserving history. Lists exclude
 archived records and accept limit (1–200, default 100) and offset (default 0).
 Foreign resources return 404; duplicate codes return 409; invalid input 400.
-The upcoming rental feature adds the archive guard for current/future contracts.
+Archiving rejects unresolved current/future confirmed contracts with 409.

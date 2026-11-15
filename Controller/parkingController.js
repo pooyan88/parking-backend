@@ -1,5 +1,8 @@
 const pool = require('../Database/db');
 const { validateParkingDetails, parseParkingId } = require('../Utils/parkingValidation');
+const { transaction } = require('../Database/transaction');
+const { HttpError, sendError } = require('../Utils/httpErrors');
+const { assertNoBookings } = require('../Service/rentalGuards');
 
 const parkingController = {
     getAllParkings: async (req, res) => { 
@@ -99,22 +102,20 @@ const parkingController = {
         }
 
         try {
-            const result = await pool.query(
-                `UPDATE public.parkings
+            await transaction(pool, async client => {
+                const parking = await client.query(`SELECT id FROM public.parkings
+                    WHERE id = $1 AND owner_id = $2 FOR UPDATE`, [id, req.user.id]);
+                if (!parking.rows.length) throw new HttpError(404, 'Parking lot not found');
+                await assertNoBookings(client, { ownerId: req.user.id, parkingId: id });
+                const result = await client.query(`UPDATE public.parkings
                  SET archived_at = COALESCE(archived_at, NOW())
                  WHERE id = $1 AND owner_id = $2
-                 RETURNING id`,
-                [id, req.user.id]
-            );
-
-            if (result.rows.length === 0) {
-                return res.status(404).json({ message: 'Parking lot not found' });
-            }
-
+                 RETURNING id`, [id, req.user.id]);
+                if (!result.rows.length) throw new HttpError(404, 'Parking lot not found');
+            });
             return res.status(204).send();
         } catch (error) {
-            console.error('Error archiving parking:', error.message);
-            return res.status(500).json({ message: 'Internal server error' });
+            return sendError(res, error);
         }
     }
 }

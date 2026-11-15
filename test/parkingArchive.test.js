@@ -6,6 +6,13 @@ const controller = require('../Controller/parkingController');
 const router = require('../Router/parkingRouter');
 
 test.after(() => pool.end());
+test.beforeEach(t => {
+    t.mock.method(pool, 'connect', async () => ({ query: async (sql, values) => {
+        if (sql.includes('SELECT id FROM public.parkings')) return { rows: [{ id: 12 }] };
+        if (sql.includes('FROM public.rental_contracts') || ['BEGIN', 'COMMIT', 'ROLLBACK'].includes(sql)) return { rows: [] };
+        return pool.query(sql, values);
+    }, release() {} }));
+});
 
 function response(onFinish = () => {}) {
     return {

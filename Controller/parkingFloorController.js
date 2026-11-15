@@ -1,6 +1,8 @@
 const pool = require('../Database/db');
 const { parseParkingId } = require('../Utils/parkingValidation');
 const { validateParkingFloor } = require('../Utils/parkingFloorValidation');
+const { assertNoBookings } = require('../Service/rentalGuards');
+const { HttpError } = require('../Utils/httpErrors');
 
 const parkingFloorController = {
     getFloors: async (req, res) => {
@@ -181,6 +183,7 @@ const parkingFloorController = {
                 return res.status(404).json({ message: 'Parking floor not found' });
             }
 
+            await assertNoBookings(client, { ownerId: req.user.id, parkingId, floorId });
             const result = await client.query(
                 `UPDATE public.parking_floors
                  SET archived_at = COALESCE(archived_at, NOW())
@@ -206,6 +209,7 @@ const parkingFloorController = {
                 }
             }
             console.error('Error archiving parking floor:', error.message);
+            if (error instanceof HttpError && !connectionError) return res.status(error.status).json({ message: error.message });
             return res.status(500).json({ message: 'Internal server error' });
         } finally {
             if (client) client.release(connectionError);

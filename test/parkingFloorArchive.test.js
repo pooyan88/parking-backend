@@ -56,11 +56,12 @@ test('floor archive uses the authenticated parent and both URL IDs in one transa
     assert.match(db.calls[1].sql, /WHERE id = \$1 AND owner_id = \$2 AND archived_at IS NULL/);
     assert.match(db.calls[1].sql, /FOR UPDATE/);
     assert.deepEqual(db.calls[1].values, [12, '7']);
-    assert.match(db.calls[2].sql, /SET archived_at = COALESCE\(archived_at, NOW\(\)\)/);
-    assert.match(db.calls[2].sql, /WHERE id = \$1 AND parking_id = \$2/);
-    assert.ok(!db.calls[2].sql.includes('DELETE FROM'));
-    assert.deepEqual(db.calls[2].values, [1, 12]);
-    assert.equal(db.calls[3].sql, 'COMMIT');
+    const update = db.calls.find(call => call.sql.includes('UPDATE public.parking_floors'));
+    assert.match(update.sql, /SET archived_at = COALESCE\(archived_at, NOW\(\)\)/);
+    assert.match(update.sql, /WHERE id = \$1 AND parking_id = \$2/);
+    assert.ok(!update.sql.includes('DELETE FROM'));
+    assert.deepEqual(update.values, [1, 12]);
+    assert.equal(db.calls.at(-1).sql, 'COMMIT');
     assert.deepEqual(db.releases, [undefined]);
     assert.equal(res.statusCode, 204);
     assert.equal(res.body, undefined);
@@ -163,5 +164,5 @@ test('the DELETE floor route uses the URL IDs and verified JWT subject', async t
     const res = await route({ authorization: `Bearer ${token}` });
     assert.equal(res.statusCode, 204);
     assert.deepEqual(db.calls[1].values, [12, '7']);
-    assert.deepEqual(db.calls[2].values, [1, 12]);
+    assert.deepEqual(db.calls.find(call => call.sql.includes('UPDATE public.parking_floors')).values, [1, 12]);
 });

@@ -2,6 +2,7 @@ const pool = require('../Database/db');
 const { transaction } = require('../Database/transaction');
 const { HttpError, sendError } = require('../Utils/httpErrors');
 const input = require('../Utils/input');
+const { assertNoBookings } = require('../Service/rentalGuards');
 
 function validate(body, partial = false) {
     input.object(body, ['name', 'customer_code', 'phone_number']);
@@ -69,6 +70,7 @@ const customerController = {
                 const result = await client.query(`SELECT id FROM public.customers WHERE id = $1 AND owner_id = $2 FOR UPDATE`,
                     [customerId, req.user.id]);
                 if (!result.rows.length) throw new HttpError(404, 'Customer not found');
+                await assertNoBookings(client, { ownerId: req.user.id, customerId });
                 await client.query(`UPDATE public.customers SET archived_at = COALESCE(archived_at, NOW()) WHERE id = $1`, [customerId]);
             });
             return res.status(204).send();

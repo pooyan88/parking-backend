@@ -59,9 +59,9 @@ the same field, the last update wins. All writes use parameterized queries.
 
 This endpoint manages physical condition. It cannot set `occupied`, `reserved`,
 `is_available`, or `is_occupied`; those belong to rental calculations. There are
-no contracts yet. Before rentals are enabled, add a conflict check under the
-same locks so maintenance cannot start with unresolved current or future
-confirmed rentals. Scheduled maintenance periods are outside this feature.
+contract conflict guard now rejects starting maintenance with unresolved current
+or future confirmed rentals, using the same locks as booking creation.
+Scheduled maintenance periods are outside this feature.
 
 ## Verification
 
