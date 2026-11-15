@@ -2,6 +2,7 @@ const { HttpError } = require('./httpErrors');
 const { parseParkingId } = require('./parkingValidation');
 
 function id(value, name = 'ID') {
+    if (typeof value !== 'string' && typeof value !== 'number') throw new HttpError(400, `Invalid ${name}`);
     const result = parseParkingId(String(value ?? ''));
     if (result === null) throw new HttpError(400, `Invalid ${name}`);
     return result;
@@ -19,6 +20,11 @@ function text(value, name, max = 255) {
     return value.trim();
 }
 function page(query = {}) {
+    for (const field of ['limit', 'offset']) {
+        if (query[field] !== undefined && (typeof query[field] !== 'string' || !/^\d+$/.test(query[field]))) {
+            throw new HttpError(400, `${field} must be a whole-number query parameter`);
+        }
+    }
     const limit = query.limit === undefined ? 100 : Number(query.limit);
     const offset = query.offset === undefined ? 0 : Number(query.offset);
     if (!Number.isInteger(limit) || limit < 1 || limit > 200 || !Number.isSafeInteger(offset) || offset < 0 || offset > 2147483647) {

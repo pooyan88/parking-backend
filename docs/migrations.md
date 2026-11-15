@@ -42,9 +42,9 @@ by `db:migrate`; use the verified baseline instead.
 
 ## Future features
 
-Add a SQL file such as `migrations/005_add_parking_ownership.sql`. Use consecutive
+Add a SQL file such as `migrations/013_describe_next_change.sql`. Use consecutive
 three-digit numbers and lowercase names with underscores. No new package or
-ORM is needed. Do not create that example file until the ownership feature starts.
+ORM is needed. That filename is an example; create it only for an approved change.
 
 - Never edit or rename a recorded migration. Add a new one instead.
 - Run migrations through `npm run db:migrate`, not the original scripts.

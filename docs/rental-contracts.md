@@ -6,7 +6,8 @@ Existing users, passwords, tokens, lots, floors, and slots are preserved.
 
 All routes require JWT: POST/GET `/contracts`, GET `/contracts/:id`, and
 GET `/contracts/:id/events`. Lists accept limit/offset, optional parking_id,
-customer_id, and status (upcoming/active/expired/ended/cancelled).
+customer_id, status (upcoming/active/expired/ended/cancelled), and expiring_days
+(1–365). The latter selects confirmed agreements ending within that many days.
 
 Create example:
 ```json

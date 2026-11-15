@@ -23,6 +23,7 @@ and the other floors stay unchanged.
 - `401`: missing, invalid, or expired access token.
 - `404`: missing or archived parent lot, another owner, a missing floor, or a
   floor outside the lot in the URL. All return `Parking floor not found`.
+- `409`: current or future confirmed rentals on this floor must be resolved.
 - `500`: unexpected database failure, without database details.
 
 Repeating the request returns `204` while the parent lot is active and owned
@@ -45,10 +46,10 @@ actions with archiving and prevents changes after the parent is archived.
 
 Slot creation and listing check the floor archive state. Archiving a floor
 preserves its slots without rewriting each child row. Future booking actions
-must also check that state. There are no customers or contracts yet.
-Before rentals are enabled, add a `409` guard for current or future confirmed
-contracts, with consistent locking between booking and archiving. Owner-level
-customers remain available for other floors and lots.
+also check that state. A `409` guard rejects current or future confirmed
+contracts, using the same parent locks as booking creation. Owner-level
+customers remain available for other floors and lots. Contract history remains
+stored and readable by its owner.
 
 ## Verification
 

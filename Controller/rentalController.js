@@ -23,11 +23,17 @@ const rentalController = {
             const parkingId = req.query?.parking_id === undefined ? null : input.id(req.query.parking_id, 'parking ID');
             const customerId = req.query?.customer_id === undefined ? null : input.id(req.query.customer_id, 'customer ID');
             const status = req.query?.status ?? null;
+            const expiringDays = req.query?.expiring_days === undefined ? null : Number(req.query.expiring_days);
+            if (expiringDays !== null && (typeof req.query.expiring_days !== 'string' || !/^\d+$/.test(req.query.expiring_days)
+                || !Number.isInteger(expiringDays) || expiringDays < 1 || expiringDays > 365)) {
+                throw new HttpError(400, 'expiring_days must be 1–365');
+            }
             if (status !== null && !['upcoming','active','expired','ended','cancelled'].includes(status)) throw new HttpError(400, 'Invalid status');
             const result = await pool.query(`SELECT * FROM public.rental_contract_details
                 WHERE owner_id = $1 AND ($2::integer IS NULL OR parking_id = $2)
                 AND ($3::integer IS NULL OR customer_id = $3) AND ($4::text IS NULL OR current_status = $4)
-                ORDER BY id DESC LIMIT $5 OFFSET $6`, [req.user.id, parkingId, customerId, status, limit, offset]);
+                AND ($7::integer IS NULL OR (status = 'confirmed' AND ends_at > NOW() AND ends_at <= NOW() + make_interval(days => $7::integer)))
+                ORDER BY id DESC LIMIT $5 OFFSET $6`, [req.user.id, parkingId, customerId, status, limit, offset, expiringDays]);
             return res.json(result.rows.map(({ rental_period, ...row }) => row));
         } catch (error) { return failure(res, error); }
     },

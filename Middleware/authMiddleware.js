@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const { parseParkingId } = require('../Utils/parkingValidation');
 
 function authMiddleware(req, res, next) {
     const authHeader = req.headers.authorization;
@@ -18,6 +19,9 @@ function authMiddleware(req, res, next) {
             { algorithms: ['HS256'] }
         );
 
+        if (!decoded || typeof decoded !== 'object' || typeof decoded.sub !== 'string' || parseParkingId(decoded.sub) === null) {
+            return res.status(401).json({ message: 'Invalid or expired access token' });
+        }
         req.user = {
             id: decoded.sub,
             username: decoded.username

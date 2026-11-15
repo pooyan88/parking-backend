@@ -20,7 +20,8 @@ module.exports = {
             const raw = req.params?.parkingId ?? req.query?.parking_id;
             const parkingId = raw === undefined ? null : input.id(raw, 'parking ID');
             const days = req.query?.expiring_days === undefined ? 7 : Number(req.query.expiring_days);
-            if (!Number.isInteger(days) || days < 1 || days > 365) throw new HttpError(400, 'expiring_days must be 1–365');
+            if ((req.query?.expiring_days !== undefined && (typeof req.query.expiring_days !== 'string' || !/^\d+$/.test(req.query.expiring_days)))
+                || !Number.isInteger(days) || days < 1 || days > 365) throw new HttpError(400, 'expiring_days must be 1–365');
             return res.json(await reports.dashboard(req.user.id, parkingId, days));
         } catch (error) { return sendError(res, error); }
     }

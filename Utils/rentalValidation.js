@@ -17,7 +17,9 @@ function timestamp(value, name) {
     return date;
 }
 function timezone(value) {
-    if (typeof value !== 'string' || !value || value.length > 100) throw new HttpError(400, 'Invalid timezone');
+    if (typeof value !== 'string' || value.length > 100 || !/^(?:UTC|GMT|[A-Za-z_]+(?:\/[A-Za-z0-9_+.-]+)+)$/.test(value)) {
+        throw new HttpError(400, 'Use an IANA timezone such as Asia/Tehran or UTC');
+    }
     try { new Intl.DateTimeFormat('en', { timeZone: value }); } catch { throw new HttpError(400, 'Invalid timezone'); }
     return value;
 }

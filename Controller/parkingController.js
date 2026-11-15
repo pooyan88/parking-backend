@@ -5,6 +5,16 @@ const { HttpError, sendError } = require('../Utils/httpErrors');
 const { assertNoBookings } = require('../Service/rentalGuards');
 
 const parkingController = {
+    getParking: async (req, res) => {
+        const id = parseParkingId(req.params?.id);
+        if (id === null) return res.status(400).json({ message: 'Invalid parking ID' });
+        try {
+            const result = await pool.query(`SELECT id, name, location, timezone, created_at FROM public.parkings
+                WHERE id = $1 AND owner_id = $2 AND archived_at IS NULL`, [id, req.user.id]);
+            if (!result.rows.length) return res.status(404).json({ message: 'Parking lot not found' });
+            return res.json(result.rows[0]);
+        } catch (error) { return sendError(res, error); }
+    },
     getAllParkings: async (req, res) => { 
         try {
             const result = await pool.query(

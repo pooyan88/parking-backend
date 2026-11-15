@@ -88,8 +88,9 @@ New slots always start as `usable`, with no maintenance note. See
 
 There is no stored `is_available` or `is_occupied` flag. A usable slot is not
 automatically free to rent: the contract feature must check overlapping rental
-periods. That feature will calculate available, occupied, and reserved states
-from contracts. This feature creates no contracts or double-booking protection.
+periods. The [rental feature](rental-contracts.md) enforces overlap constraints,
+and [availability reports](availability-dashboard.md) calculate available,
+occupied, and reserved states from those agreements.
 
 Archiving a floor or lot preserves the slots and hides them through parent
 checks. See [slot archiving](parking-slot-archiving.md) for individual soft deletion. Slot counts

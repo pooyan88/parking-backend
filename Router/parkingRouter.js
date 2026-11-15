@@ -5,6 +5,7 @@ const authMiddleware = require('../Middleware/authMiddleware');
 const router = express.Router();
 
 router.get('/parkings', authMiddleware, controller.getAllParkings);
+router.get('/parkings/:id', authMiddleware, controller.getParking);
 router.post('/parkings', authMiddleware, controller.createParking);
 router.patch('/parkings/:id', authMiddleware, controller.updateParking);
 router.delete('/parkings/:id', authMiddleware, controller.archiveParking);

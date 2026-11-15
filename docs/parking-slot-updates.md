@@ -58,8 +58,8 @@ Sending the same code or status again is allowed. If concurrent requests edit
 the same field, the last update wins. All writes use parameterized queries.
 
 This endpoint manages physical condition. It cannot set `occupied`, `reserved`,
-`is_available`, or `is_occupied`; those belong to rental calculations. There are
-contract conflict guard now rejects starting maintenance with unresolved current
+`is_available`, or `is_occupied`; those belong to rental calculations. The
+contract conflict guard rejects starting maintenance with unresolved current
 or future confirmed rentals, using the same locks as booking creation.
 Scheduled maintenance periods are outside this feature.
 

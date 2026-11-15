@@ -18,6 +18,7 @@ database time in `archived_at` and keeps the row and its relationships.
 - `400`: invalid parking ID, using the same rules as parking updates.
 - `401`: missing, invalid, or expired access token.
 - `404`: the lot is missing or belongs to another owner.
+- `409`: current or future confirmed rentals must be resolved first.
 - `500`: unexpected database failure, without internal details.
 
 Repeating the request for an already archived lot owned by the same user also
@@ -34,8 +35,8 @@ time. No restore or archived-list endpoint is included in this feature.
 Floors are preserved when a lot is archived. Their create, list, update, and archive endpoints
 check the parent lot's archive state, so they reject an archived lot with `404`.
 Slot creation and listing also check the parent lot and floor archive states.
-Existing slots are preserved. There are no customers or rental contracts yet.
-Archiving keeps the parking row so later references and history remain intact.
+Existing slots and contract history are preserved. Owner-level customers remain
+available for other lots. Archiving keeps the parking row and its references.
 
 As those features are added:
 
@@ -43,14 +44,13 @@ As those features are added:
   Slot creation and listing do too. Future slot actions and bookings must also
   check it. The parent's archive state applies without rewriting each child row.
 - Customers belong to the owner and must remain available for other lots.
-- Contract history must remain available. Before the contract feature is
-  usable, archiving must reject current or future confirmed rentals with `409`.
-  That guard and booking creation must use consistent locking so concurrent
-  requests cannot book a lot while it is being archived.
+- Contract history remains available. Archiving rejects current or future
+  confirmed rentals with `409`. The guard and booking creation lock the parent
+  lot consistently so concurrent requests cannot bypass this rule.
 
 This endpoint does not delete a user, revoke tokens, or cascade database deletes.
-One owner-scoped `UPDATE` records the archive time atomically. A separate
-transaction is not needed until related contract checks are introduced.
+A transaction locks and verifies the owner-scoped lot, checks rental conflicts,
+then records the archive time. Failure rolls back without changing the lot.
 
 ## Verification
 

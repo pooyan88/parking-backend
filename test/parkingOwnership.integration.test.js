@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+require('dotenv').config({ quiet: true });
 const test = require('node:test');
 const fs = require('node:fs/promises');
 const os = require('node:os');
