@@ -162,6 +162,53 @@ test('parking migrations with real PostgreSQL', { skip: !connectionString }, asy
         assert.deepEqual(listed.body, [legacy, parking]);
     });
 
+    await t.test('updates preserve ownership, creation time, and fields outside the request', async context => {
+        const pool = await fixture(context);
+        await addUser(pool, 42);
+        await pool.query("INSERT INTO public.parkings (name, location) VALUES ('Legacy lot', 'Original location')");
+        await runMigrations(pool, 'up', quiet);
+        const owned = (await pool.query('SELECT * FROM public.parkings')).rows[0];
+        assert.equal(owned.created_at, null);
+        await addUser(pool, 99);
+        const other = (await pool.query(`INSERT INTO public.parkings (name, location, owner_id)
+            VALUES ('Other owner lot', 'South', 99) RETURNING *`)).rows[0];
+        const another = (await pool.query(`INSERT INTO public.parkings (name, location, owner_id)
+            VALUES ('Another owned lot', 'North', 42) RETURNING *`)).rows[0];
+
+        const appPool = require('../Database/db');
+        const controller = require('../Controller/parkingController');
+        context.mock.method(appPool, 'query', (sql, values) => pool.query(sql, values));
+        function response() {
+            return { statusCode: 200, status(code) { this.statusCode = code; return this; },
+                json(body) { this.body = body; return this; } };
+        }
+
+        const before = (await pool.query('SELECT * FROM public.parkings ORDER BY id')).rows;
+        for (const id of [other.id, 2147483647]) {
+            const denied = response();
+            await controller.updateParking({ user: { id: '42' }, params: { id: String(id) },
+                body: { name: 'Unauthorized change' } }, denied);
+            assert.equal(denied.statusCode, 404);
+            assert.deepEqual(denied.body, { message: 'Parking lot not found' });
+        }
+        assert.deepEqual((await pool.query('SELECT * FROM public.parkings ORDER BY id')).rows, before);
+
+        const renamed = response();
+        await controller.updateParking({ user: { id: '42' }, params: { id: String(owned.id) },
+            body: { name: ' Renamed lot ' } }, renamed);
+        assert.equal(renamed.statusCode, 200);
+        assert.deepEqual(renamed.body.parking, { id: owned.id, name: 'Renamed lot', location: owned.location, created_at: null });
+
+        const moved = response();
+        await controller.updateParking({ user: { id: '42' }, params: { id: String(owned.id) },
+            body: { location: ' New location ' } }, moved);
+        assert.equal(moved.statusCode, 200);
+        assert.deepEqual((await pool.query('SELECT * FROM public.parkings WHERE id = $1', [owned.id])).rows[0],
+            { ...owned, name: 'Renamed lot', location: 'New location' });
+        assert.deepEqual((await pool.query('SELECT * FROM public.parkings WHERE id = $1', [other.id])).rows[0], other);
+        assert.deepEqual((await pool.query('SELECT * FROM public.parkings WHERE id = $1', [another.id])).rows[0], another);
+    });
+
     for (const ids of [[], [42, 99]]) {
         await t.test(`existing lots with ${ids.length} users roll back without assigning ownership`, async context => {
             const pool = await fixture(context);

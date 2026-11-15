@@ -47,8 +47,9 @@ by ID. Older lots have `created_at: null` because their creation dates are unkno
 - `401`: access token is missing, invalid, or expired.
 - `500`: database failure, without database details in the response.
 
-See [parking creation](parking-creation.md) for `POST /parkings`. Editing,
-deletion, floors, and other resources belong to later features.
+See [parking creation](parking-creation.md) for `POST /parkings`, and
+[parking updates](parking-updates.md) for `PATCH /parkings/:id`. Deletion,
+floors, and other resources belong to later features.
 
 ## Tests
 
