@@ -3,16 +3,36 @@ const test = require('node:test');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { loadMigrations, validateHistory, runMigrations } = require('../Database/migrationRunner');
+const { loadMigrations: loadFromDirectory, validateHistory, runMigrations: runWithPool } = require('../Database/migrationRunner');
 const { verifyBaseline } = require('../Database/migrationBaseline');
 
 const sourceDirectory = path.join(__dirname, '..', 'migrations');
+let originalDirectory;
+
+// Runner safety tests use only the original four scripts. Adding a real feature
+// migration must not change the schema or file numbers used by these fixtures.
+test.before(async () => {
+    originalDirectory = await copyMigrations();
+});
+test.after(async () => {
+    if (originalDirectory) await fs.rm(originalDirectory, { recursive: true, force: true });
+});
+
+function loadMigrations(directory = originalDirectory) {
+    return loadFromDirectory(directory);
+}
+
+function runMigrations(pool, command, options = {}) {
+    return runWithPool(pool, command, { directory: originalDirectory, ...options });
+}
 
 async function copyMigrations(t) {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'parking-migrations-test-'));
-    t.after(() => fs.rm(directory, { recursive: true, force: true }));
+    if (t) t.after(() => fs.rm(directory, { recursive: true, force: true }));
     for (const filename of await fs.readdir(sourceDirectory)) {
-        await fs.copyFile(path.join(sourceDirectory, filename), path.join(directory, filename));
+        if (/^00[1-4]_.*\.js$/.test(filename)) {
+            await fs.copyFile(path.join(sourceDirectory, filename), path.join(directory, filename));
+        }
     }
     return directory;
 }
