@@ -80,8 +80,8 @@ requests. A rollback failure removes that connection from the pool.
 
 Archiving a lot keeps its floors in the database but hides them through the
 parent check. See [floor updates](parking-floor-updates.md) for editing.
-Archiving individual floors is a later feature.
-Floor numbers remain reserved even if a floor is archived later.
+See [floor archiving](parking-floor-archiving.md) for soft deletion.
+Floor numbers remain reserved after archiving.
 
 Slot counts and occupancy will be calculated from slots and rental periods
 when those features exist. There are no capacity or occupancy counters here.

@@ -153,6 +153,63 @@ const parkingFloorController = {
         } finally {
             if (client) client.release(connectionError);
         }
+    },
+
+    archiveFloor: async (req, res) => {
+        const parkingId = parseParkingId(req.params?.parkingId);
+        const floorId = parseParkingId(req.params?.floorId);
+        if (parkingId === null || floorId === null) {
+            return res.status(400).json({ message: 'Parking ID and floor ID must be positive integers up to 2147483647' });
+        }
+
+        let client;
+        let transactionStarted = false;
+        let connectionError;
+        try {
+            client = await pool.connect();
+            await client.query('BEGIN');
+            transactionStarted = true;
+            const parking = await client.query(
+                `SELECT id FROM public.parkings
+                 WHERE id = $1 AND owner_id = $2 AND archived_at IS NULL
+                 FOR UPDATE`,
+                [parkingId, req.user.id]
+            );
+            if (parking.rows.length === 0) {
+                await client.query('ROLLBACK');
+                transactionStarted = false;
+                return res.status(404).json({ message: 'Parking floor not found' });
+            }
+
+            const result = await client.query(
+                `UPDATE public.parking_floors
+                 SET archived_at = COALESCE(archived_at, NOW())
+                 WHERE id = $1 AND parking_id = $2
+                 RETURNING id`,
+                [floorId, parkingId]
+            );
+            if (result.rows.length === 0) {
+                await client.query('ROLLBACK');
+                transactionStarted = false;
+                return res.status(404).json({ message: 'Parking floor not found' });
+            }
+            await client.query('COMMIT');
+            transactionStarted = false;
+            return res.status(204).send();
+        } catch (error) {
+            if (client && transactionStarted) {
+                try {
+                    await client.query('ROLLBACK');
+                } catch (rollbackError) {
+                    connectionError = rollbackError;
+                    console.error('Parking floor archive rollback error:', rollbackError.message);
+                }
+            }
+            console.error('Error archiving parking floor:', error.message);
+            return res.status(500).json({ message: 'Internal server error' });
+        } finally {
+            if (client) client.release(connectionError);
+        }
     }
 };
 

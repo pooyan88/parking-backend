@@ -407,6 +407,83 @@ test('parking migrations with real PostgreSQL', { skip: !connectionString }, asy
         assert.deepEqual(await stored(crossLot.id), crossLot);
     });
 
+    await t.test('floor archive preserves history, reserves the number, and hides the floor', async context => {
+        const pool = await fixture(context);
+        await runMigrations(pool, 'up', quiet);
+        await addUser(pool, 42);
+        await addUser(pool, 99);
+        const [owned, second, other] = (await pool.query(`INSERT INTO public.parkings (name, owner_id)
+            VALUES ('Owner lot', 42), ('Second lot', 42), ('Other owner lot', 99) RETURNING id`)).rows;
+        const [target, active, crossLot, foreign] = (await pool.query(`
+            INSERT INTO public.parking_floors (parking_id, floor_number, label)
+            VALUES ($1, 0, 'Ground'), ($1, 1, 'Upper floor'), ($2, 0, NULL), ($3, 0, NULL)
+            RETURNING *`, [owned.id, second.id, other.id])).rows;
+        const parkingBefore = (await pool.query('SELECT * FROM public.parkings ORDER BY id')).rows;
+        const floorsBefore = (await pool.query('SELECT * FROM public.parking_floors ORDER BY id')).rows;
+        const appPool = require('../Database/db');
+        const floors = require('../Controller/parkingFloorController');
+        context.mock.method(appPool, 'connect', () => pool.connect());
+        context.mock.method(appPool, 'query', (sql, values) => pool.query(sql, values));
+        context.mock.method(console, 'error', () => {});
+        function response() {
+            return { statusCode: 200, status(code) { this.statusCode = code; return this; },
+                json(body) { this.body = body; return this; },
+                send(body) { this.body = body; return this; } };
+        }
+        function request(parkingId, floorId, body) {
+            return { user: { id: '42' }, params: { parkingId: String(parkingId), floorId: String(floorId) }, body };
+        }
+        async function archive(parkingId, floorId) {
+            const res = response();
+            await floors.archiveFloor(request(parkingId, floorId, { owner_id: 99 }), res);
+            return res;
+        }
+        async function stored(id) {
+            return (await pool.query('SELECT * FROM public.parking_floors WHERE id = $1', [id])).rows[0];
+        }
+
+        for (const [parkingId, floorId] of [[owned.id, crossLot.id], [other.id, foreign.id],
+            [owned.id, foreign.id], [owned.id, 2147483647]]) {
+            const denied = await archive(parkingId, floorId);
+            assert.equal(denied.statusCode, 404);
+            assert.deepEqual(denied.body, { message: 'Parking floor not found' });
+        }
+        assert.deepEqual((await pool.query('SELECT * FROM public.parking_floors ORDER BY id')).rows, floorsBefore);
+
+        const archived = await archive(owned.id, target.id);
+        assert.equal(archived.statusCode, 204);
+        assert.equal(archived.body, undefined);
+        const firstArchive = await stored(target.id);
+        assert.ok(firstArchive.archived_at instanceof Date);
+        assert.deepEqual({ ...firstArchive, archived_at: null }, target);
+        assert.equal((await archive(owned.id, target.id)).statusCode, 204);
+        assert.deepEqual(await stored(target.id), firstArchive);
+
+        const listed = response();
+        await floors.getFloors(request(owned.id), listed);
+        assert.deepEqual(listed.body.map(row => row.id), [active.id]);
+        const edited = response();
+        await floors.updateFloor(request(owned.id, target.id, { label: 'Must not change' }), edited);
+        assert.equal(edited.statusCode, 404);
+        assert.deepEqual(await stored(target.id), firstArchive);
+        const duplicate = response();
+        await floors.createFloor(request(owned.id, undefined, { floor_number: 0 }), duplicate);
+        assert.equal(duplicate.statusCode, 409);
+
+        assert.equal((await archive(owned.id, active.id)).statusCode, 204);
+        const empty = response();
+        await floors.getFloors(request(owned.id), empty);
+        assert.equal(empty.statusCode, 200);
+        assert.deepEqual(empty.body, []);
+        assert.equal((await pool.query('SELECT COUNT(*)::integer AS count FROM public.parking_floors')).rows[0].count, 4);
+        assert.deepEqual((await pool.query('SELECT * FROM public.parkings ORDER BY id')).rows, parkingBefore);
+        assert.deepEqual(await stored(crossLot.id), crossLot);
+        assert.deepEqual(await stored(foreign.id), foreign);
+        await pool.query('UPDATE public.parkings SET archived_at = NOW() WHERE id = $1', [second.id]);
+        assert.equal((await archive(second.id, crossLot.id)).statusCode, 404);
+        assert.deepEqual(await stored(crossLot.id), crossLot);
+    });
+
     await t.test('floor creation cannot proceed when a concurrent archive commits first', async context => {
         const pool = await fixture(context);
         await runMigrations(pool, 'up', quiet);
