@@ -92,7 +92,7 @@ periods. That feature will calculate available, occupied, and reserved states
 from contracts. This feature creates no contracts or double-booking protection.
 
 Archiving a floor or lot preserves the slots and hides them through parent
-checks. Individual slot archiving is a later feature. Slot counts
+checks. See [slot archiving](parking-slot-archiving.md) for individual soft deletion. Slot counts
 and occupancy statistics will be calculated from the underlying data later.
 
 ## Verification
