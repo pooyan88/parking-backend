@@ -46,7 +46,7 @@ function fakeDatabase({customer=true,eventFailure=false}={}) {
         if(sql.includes('SELECT s.id, s.floor_id'))return {rows:[{id:3,floor_id:1,parking_id:12}]};
         if(sql.includes('SELECT * FROM public.parkings'))return {rows:[{id:12,timezone:'UTC'}]};
         if(sql.includes('SELECT * FROM public.parking_floors'))return {rows:[{id:1,parking_id:12}]};
-        if(sql.includes('SELECT * FROM public.parking_slots'))return {rows:[{id:3,floor_id:1,parking_id:12,operational_status:'usable'}]};
+        if(sql.includes('SELECT * FROM public.parking_slots'))return {rows:[{id:3,floor_id:1,parking_id:12,code:'A-3',operational_status:'usable'}]};
         if(sql.includes('FROM public.customers')){assert.deepEqual(values,[2,'7']);return {rows:customer?[{id:2}]:[]};}
         if(sql.includes('make_interval')){assert.deepEqual(values,[new Date(body.starts_at),1,'UTC']);return {rows:[{ends_at:new Date('2030-02-28T10:00:00Z')}]};}
         if(sql.includes('INSERT INTO public.rental_contracts'))return {rows:[{id:50,owner_id:7,ends_at:values[6]}]};

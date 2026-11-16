@@ -6,6 +6,31 @@ const { HttpError, sendError } = require('../Utils/httpErrors');
 const { assertNoBookings } = require('../Service/rentalGuards');
 
 const parkingSlotController = {
+    createSlots: async (req, res) => {
+        const parkingId = parseParkingId(req.params?.parkingId);
+        const floorId = parseParkingId(req.params?.floorId);
+        const body = req.body;
+        if (parkingId === null || floorId === null || !body || typeof body !== 'object' || Array.isArray(body)
+            || Object.keys(body).length !== 1 || !Number.isSafeInteger(body.count) || body.count < 1 || body.count > 1000) {
+            return res.status(400).json({ message: 'Provide count as a positive whole number from 1 to 1000' });
+        }
+        try {
+            const slots = await transaction(pool, async client => {
+                const parking = await client.query(`SELECT id FROM public.parkings
+                    WHERE id = $1 AND owner_id = $2 AND archived_at IS NULL FOR UPDATE`, [parkingId, req.user.id]);
+                if (!parking.rows.length) throw new HttpError(404, 'Parking floor not found');
+                const floor = await client.query(`SELECT id FROM public.parking_floors
+                    WHERE id = $1 AND parking_id = $2 AND archived_at IS NULL FOR UPDATE`, [floorId, parkingId]);
+                if (!floor.rows.length) throw new HttpError(404, 'Parking floor not found');
+                const result = await client.query(`INSERT INTO public.parking_slots (parking_id, floor_id, code)
+                    SELECT $1, $2, NULL FROM generate_series(1, $3::integer)
+                    RETURNING id, parking_id, floor_id, code, operational_status, maintenance_note, created_at`,
+                [parkingId, floorId, body.count]);
+                return result.rows;
+            });
+            return res.status(201).json({ message: 'Parking slots created successfully', slots });
+        } catch (error) { return sendError(res, error); }
+    },
     getSlots: async (req, res) => {
         const parkingId = parseParkingId(req.params?.parkingId);
         const floorId = parseParkingId(req.params?.floorId);

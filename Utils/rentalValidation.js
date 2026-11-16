@@ -53,10 +53,21 @@ function period(body, startsAt) {
     if (Object.hasOwn(body, 'ends_at')) throw new HttpError(400, 'Calendar rentals calculate ends_at; use custom for an explicit end');
     return { rentalType: type, periodMonths: type === 'monthly' ? 1 : 3, endsAt: null };
 }
+function assignmentCode(body) {
+    let slotCode;
+    if (Object.hasOwn(body, 'slot_code')) {
+        if (typeof body.slot_code !== 'string' || !body.slot_code.trim() || [...body.slot_code.trim()].length > 255 || body.slot_code.includes('\0')) {
+            throw new HttpError(400, 'slot_code must be non-empty text up to 255 characters, without null characters');
+        }
+        slotCode = body.slot_code.trim();
+    }
+    return slotCode;
+}
 function creation(body) {
-    input.object(body, ['customer_id', 'slot_id', 'starts_at', 'rental_type', 'hours', 'ends_at', 'timezone', 'agreed_price', 'currency']);
+    input.object(body, ['customer_id', 'slot_id', 'slot_code', 'starts_at', 'rental_type', 'hours', 'ends_at', 'timezone', 'agreed_price', 'currency']);
+    const slotCode = assignmentCode(body);
     const startsAt = timestamp(body.starts_at, 'starts_at');
-    return { customerId: input.id(body.customer_id, 'customer ID'), slotId: input.id(body.slot_id, 'slot ID'), startsAt,
+    return { customerId: input.id(body.customer_id, 'customer ID'), slotId: input.id(body.slot_id, 'slot ID'), slotCode, startsAt,
         ...period(body, startsAt), ...price(body), timezone: body.timezone === undefined ? null : timezone(body.timezone) };
 }
-module.exports = { timestamp, timezone, price, period, creation };
+module.exports = { timestamp, timezone, price, period, creation, assignmentCode };

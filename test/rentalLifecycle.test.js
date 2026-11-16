@@ -20,7 +20,7 @@ function setup(t, overrides = {}, insertFailure = false) {
     },release(){}};
     t.mock.method(pool,'connect',async()=>client);
     t.mock.method(rentals,'lockResources',async(c,owner,ids)=>{
-        assert.equal(owner,'7');assert.ok(ids.includes(10));return {parkings:[{id:12}],slots:ids.map(id=>({id,parking_id:12,operational_status:'usable'}))};
+        assert.equal(owner,'7');assert.ok(ids.includes(10));return {parkings:[{id:12}],slots:ids.map(id=>({id,parking_id:12,code:'Existing',operational_status:'usable'}))};
     });
     t.mock.method(rentals,'lockCustomer',async()=>{});
     t.mock.method(rentals,'calendarEnd',async(c,anchor,months,zone)=>{

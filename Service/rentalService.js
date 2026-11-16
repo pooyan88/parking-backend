@@ -2,6 +2,7 @@ const pool = require('../Database/db');
 const { transaction } = require('../Database/transaction');
 const { HttpError } = require('../Utils/httpErrors');
 const validation = require('../Utils/rentalValidation');
+const { assertNoBookings } = require('./rentalGuards');
 
 async function lockResources(client, ownerId, slotIds) {
     const ids = [...new Set(slotIds)].sort((a, b) => a - b);
@@ -42,11 +43,11 @@ async function event(client, ownerId, contractId, type, before, after) {
 async function insert(client, ownerId, details) {
     const result = await client.query(`INSERT INTO public.rental_contracts
         (owner_id, parking_id, customer_id, slot_id, rental_type, starts_at, ends_at, timezone, period_months,
-         billing_anchor_at, billing_month_offset, agreed_price, currency, previous_contract_id, link_type)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+         billing_anchor_at, billing_month_offset, agreed_price, currency, previous_contract_id, link_type, assigned_code)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
         [ownerId, details.parkingId, details.customerId, details.slotId, details.rentalType, details.startsAt, details.endsAt,
             details.timezone, details.periodMonths, details.billingAnchor ?? details.startsAt, details.monthOffset ?? 0,
-            details.agreedPrice, details.currency, details.previousId ?? null, details.linkType ?? null]);
+            details.agreedPrice, details.currency, details.previousId ?? null, details.linkType ?? null, details.slotCode ?? null]);
     return result.rows[0];
 }
 async function details(client, ownerId, contractId) {
@@ -61,6 +62,8 @@ async function create(ownerId, body) {
     return transaction(pool, async client => {
         const resources = await lockResources(client, ownerId, [value.slotId]);
         if (resources.slots[0].operational_status !== 'usable') throw new HttpError(409, 'Slot is under maintenance');
+        const slot = resources.slots[0];
+        value.slotCode = await assignCode(client,ownerId,slot,value.slotCode);
         await lockCustomer(client, ownerId, value.customerId);
         value.timezone = value.timezone ?? resources.parkings[0].timezone;
         value.parkingId = resources.slots[0].parking_id;
@@ -70,4 +73,13 @@ async function create(ownerId, body) {
         return details(client, ownerId, row.id);
     });
 }
-module.exports = { create, lockResources, lockCustomer, calendarEnd, event, insert, details };
+async function assignCode(client, ownerId, slot, requestedCode) {
+    const code = requestedCode ?? slot.code;
+    if (!code) throw new HttpError(400, 'slot_code is required for an empty slot');
+    if (code !== slot.code) {
+        await assertNoBookings(client, { ownerId, slotId: slot.id });
+        await client.query('UPDATE public.parking_slots SET code = $1 WHERE id = $2', [code, slot.id]);
+    }
+    return code;
+}
+module.exports = { create, lockResources, lockCustomer, calendarEnd, event, insert, details, assignCode };

@@ -3,7 +3,7 @@ const { randomUUID } = require('node:crypto');
 const assert = require('node:assert/strict');
 const { runMigrations } = require('../../Database/migrationRunner');
 
-async function database(t) {
+async function database(t, { directory } = {}) {
     const url = new URL(process.env.PARKING_TEST_DATABASE_URL);
     assert.ok(['postgres:', 'postgresql:'].includes(url.protocol));
     assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(url.hostname), 'Only local integration databases are allowed');
@@ -20,7 +20,7 @@ async function database(t) {
     await admin.query(`CREATE DATABASE "${name}"`); created = true;
     url.pathname = `/${name}`;
     pool = new Pool({ connectionString: url.href, connectionTimeoutMillis: 3000 });
-    await runMigrations(pool, 'up', { log() {} });
+    await runMigrations(pool, 'up', { directory, log() {} });
     const application = require('../../Database/db');
     t.mock.method(application, 'connect', () => pool.connect());
     t.mock.method(application, 'query', (sql, values) => pool.query(sql, values));

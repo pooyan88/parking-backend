@@ -11,6 +11,17 @@ const {
 
 const authController = {
 
+    profile: async (req, res) => {
+        try {
+            const result = await pool.query('SELECT id, username, phone_number, created_at FROM public.users WHERE id = $1', [req.user.id]);
+            if (!result.rows.length) return res.status(401).json({ message: 'User no longer exists' });
+            return res.json({ user: result.rows[0] });
+        } catch (error) {
+            console.error('Profile error:', error.code || error.name);
+            return res.status(500).json({ message: 'Internal server error' });
+        }
+    },
+
     // =========================
     // SIGNUP
     // =========================
@@ -85,7 +96,7 @@ const authController = {
             }
 
             const result = await pool.query(
-                `SELECT id, username, password_hash
+                `SELECT id, username, phone_number, created_at, password_hash
                  FROM users
                  WHERE username = $1`,
                 [username.trim()]
@@ -128,7 +139,9 @@ const authController = {
                 message: 'Login successful',
                 user: {
                     id: user.id,
-                    username: user.username
+                    username: user.username,
+                    phone_number: user.phone_number,
+                    created_at: user.created_at
                 },
                 access_token: accessToken,
                 refresh_token: refreshToken,
