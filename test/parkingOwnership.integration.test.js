@@ -79,7 +79,7 @@ test('parking migrations with real PostgreSQL', { skip: !connectionString }, asy
         await assert.rejects(pool.query("INSERT INTO public.parkings (name, owner_id) VALUES ('Missing user', 999)"), { code: '23503' });
         await addUser(pool, 42);
         await pool.query("INSERT INTO public.parkings (name, owner_id) VALUES ('Owned lot', 42)");
-        await assert.rejects(pool.query('DELETE FROM public.users WHERE id = 42'), error => ['23503', '23001'].includes(error.code));
+        await assert.rejects(pool.query('DELETE FROM public.users WHERE id = 42'), { code: '23503' });
         const index = await pool.query("SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'parkings_owner_id_idx'");
         assert.equal(index.rowCount, 1);
         await runOwnership(pool);
@@ -235,7 +235,6 @@ test('parking migrations with real PostgreSQL', { skip: !connectionString }, asy
                 send(body) { this.body = body; return this; } };
         }
 
-        context.mock.method(appPool, 'connect', () => pool.connect());
         const denied = response();
         await controller.archiveParking({ user: { id: '42' }, params: { id: String(other.id) } }, denied);
         assert.equal(denied.statusCode, 404);
@@ -327,7 +326,7 @@ test('parking migrations with real PostgreSQL', { skip: !connectionString }, asy
             VALUES ($1, 0)`, [2147483647]), { code: '23503' });
         await assert.rejects(pool.query(`INSERT INTO public.parking_floors (parking_id, floor_number)
             VALUES ($1, -1)`, [owned.id]), { code: '23505' });
-        await assert.rejects(pool.query('DELETE FROM public.parkings WHERE id = $1', [owned.id]), error => ['23503', '23001'].includes(error.code));
+        await assert.rejects(pool.query('DELETE FROM public.parkings WHERE id = $1', [owned.id]), { code: '23503' });
 
         await pool.query('UPDATE public.parking_floors SET archived_at = NOW() WHERE parking_id = $1 AND floor_number = 0', [owned.id]);
         assert.deepEqual((await list(owned)).body.map(row => row.floor_number), [-1, 1, 2]);
@@ -600,7 +599,7 @@ test('parking migrations with real PostgreSQL', { skip: !connectionString }, asy
         }
         await assert.rejects(pool.query(`INSERT INTO public.parking_slots (parking_id, floor_id, code, operational_status)
             VALUES ($1, $2, 'Invalid state', 'occupied')`, [owned.id, ground.id]), { code: '23514' });
-        await assert.rejects(pool.query('DELETE FROM public.parking_floors WHERE id = $1', [basement.id]), error => ['23503', '23001'].includes(error.code));
+        await assert.rejects(pool.query('DELETE FROM public.parking_floors WHERE id = $1', [basement.id]), { code: '23503' });
 
         await pool.query('UPDATE public.parking_slots SET archived_at = NOW() WHERE id = $1', [first.id]);
         assert.deepEqual((await list(owned.id, basement.id)).body.map(row => row.code), ['B-101']);

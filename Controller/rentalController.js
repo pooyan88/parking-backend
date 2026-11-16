@@ -3,9 +3,6 @@ const service = require('../Service/rentalService');
 const input = require('../Utils/input');
 const { HttpError, sendError } = require('../Utils/httpErrors');
 function failure(res, error) {
-    if (!error.rollbackFailed && error.code === '23505' && error.constraint === 'parking_slots_parking_id_code_key') {
-        return res.status(409).json({ message: 'This slot code already exists in this parking lot' });
-    }
     if (!error.rollbackFailed && (error.code === '23P01' || error.constraint === 'rental_contracts_one_renewal_key')) {
         return res.status(409).json({ message: 'Slot period conflicts with another contract or renewal' });
     }

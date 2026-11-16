@@ -21,12 +21,11 @@ async function run(ownerId, contractId, action, requestBody) {
     const allowed = {
         cancel: [], end: [], extend: ['ends_at', 'agreed_price', 'currency'],
         renew: ['rental_type', 'hours', 'ends_at', 'agreed_price', 'currency'],
-        move: ['slot_id', 'slot_code', 'agreed_price', 'currency']
+        move: ['slot_id', 'agreed_price', 'currency']
     };
     if (!Object.hasOwn(allowed, action)) throw new HttpError(400, 'Unknown contract action');
     input.object(body, allowed[action]);
     const targetId = action === 'move' ? input.id(body.slot_id, 'slot ID') : null;
-    const targetCode = action === 'move' ? validation.assignmentCode(body) : undefined;
     const extensionEnd = action === 'extend' ? validation.timestamp(body.ends_at, 'ends_at') : null;
     return transaction(pool, async client => {
         const { source, resources } = await lockedContract(client, ownerId, contractId, targetId === null ? [] : [targetId]);
@@ -61,7 +60,6 @@ async function run(ownerId, contractId, action, requestBody) {
         if (action === 'renew') {
             const slot = resources.slots.find(row => row.id === source.slot_id);
             if (slot.operational_status !== 'usable') throw new HttpError(409, 'Slot is under maintenance');
-            if (!slot.code) throw new HttpError(409, 'Assign a code to the slot before renewing a contract');
             const spec = { ...body, rental_type: body.rental_type ?? source.rental_type };
             if (spec.rental_type === 'hourly' && source.rental_type === 'hourly' && spec.hours === undefined) {
                 spec.hours = (source.ends_at - source.starts_at) / 3600000;
@@ -74,7 +72,7 @@ async function run(ownerId, contractId, action, requestBody) {
             const row = await rentals.insert(client, ownerId, { ...period, ...money,
                 parkingId: source.parking_id, customerId: source.customer_id, slotId: source.slot_id,
                 startsAt: source.ends_at, timezone: source.timezone, billingAnchor: anchor, monthOffset: offset,
-                previousId: source.id, linkType: 'renewal', slotCode: slot.code });
+                previousId: source.id, linkType: 'renewal' });
             await rentals.event(client, ownerId, row.id, 'renewed', null, row);
             return rentals.details(client, ownerId, row.id);
         }
@@ -82,7 +80,6 @@ async function run(ownerId, contractId, action, requestBody) {
         if (source.ends_at <= now) throw new HttpError(409, 'An expired contract cannot change slots');
         const target = resources.slots.find(row => row.id === targetId);
         if (target.operational_status !== 'usable') throw new HttpError(409, 'Target slot is under maintenance');
-        const assignedCode = await rentals.assignCode(client,ownerId,target,targetCode);
         const upcoming = source.starts_at > now;
         const closed = upcoming
             ? await client.query(`UPDATE public.rental_contracts SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
@@ -93,7 +90,7 @@ async function run(ownerId, contractId, action, requestBody) {
             customerId: source.customer_id, slotId: targetId, rentalType: source.period_months ? source.rental_type : 'custom',
             periodMonths: source.period_months, startsAt: upcoming ? source.starts_at : now, endsAt: source.ends_at,
             timezone: source.timezone, billingAnchor: source.billing_anchor_at, monthOffset: source.billing_month_offset,
-            previousId: source.id, linkType: 'move', slotCode: assignedCode });
+            previousId: source.id, linkType: 'move' });
         await rentals.event(client, ownerId, source.id, 'moved_out', source, { ...closed.rows[0], moved_to_contract_id: row.id });
         await rentals.event(client, ownerId, row.id, 'moved_in', null, row);
         return rentals.details(client, ownerId, row.id);
