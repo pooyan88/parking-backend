@@ -25,6 +25,8 @@ Each SQL NULL is returned as `"کاربر جدید"`; a supplied name is preserv
 if the other field is missing. This fallback is applied when reading, so it
 also covers old accounts and subsequent database updates to NULL. Raw database
 queries still see NULL. Refresh-token responses and JWT claims are unchanged.
+The authenticated [profile API](profile.md) can update phone number and names.
+Migration 014 creates and synchronizes one profile per user automatically.
 
 Before starting the updated API on the server, back up the database and apply
 the migration with the existing runner:

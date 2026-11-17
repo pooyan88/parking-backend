@@ -4,6 +4,7 @@ app.disable('x-powered-by');
 app.use(express.json({ limit: '100kb' }));
 app.use(require('./Router/parkingRouter'));
 app.use(require('./Router/authRouter'));
+app.use(require('./Router/profileRouter'));
 app.use(require('./Router/parkingFloorRouter'));
 app.use(require('./Router/parkingSlotRouter'));
 app.use(require('./Router/customerRouter'));

@@ -23,7 +23,7 @@ npm run dev
 ```
 
 Existing untracked databases need `npm run db:baseline` once before migration.
-The current upgrade batch adds migrations 010–013. Real PostgreSQL validation is
+The current upgrade batch adds migrations 010–014. Real PostgreSQL validation is
 still pending in the restricted implementation environment. To run it locally,
 set PARKING_TEST_DATABASE_URL to a local maintenance database with a role that
 can create disposable databases, then run `npm run test:integration`.
@@ -37,6 +37,7 @@ All business routes require `Authorization: Bearer <access_token>`.
 | Route | Methods | Purpose |
 |---|---|---|
 | `/auth/signup`, `/auth/login`, `/auth/refresh` | POST | Existing authentication |
+| `/profile` | GET, PATCH | Current user's profile; update phone and names |
 | `/parkings` | GET, POST | Owner's active lots; create |
 | `/parkings/:id` | GET, PATCH, DELETE | Detail, edit, archive |
 | `/parkings/:parkingId/floors` | GET, POST | Floors in an active owned lot |
@@ -59,6 +60,8 @@ All business routes require `Authorization: Bearer <access_token>`.
 
 Signup accepts optional `name` and `family_name` fields. Signup and login return
 `کاربر جدید` for each missing name. See the [user name guide](docs/authentication.md).
+The authenticated [profile API](docs/profile.md) reads the current user's details
+and updates phone number and names; username is read-only.
 
 Customer/contract/event/availability lists use limit/offset (default 100,
 maximum 200). Contract lists support parking_id, customer_id, status, and

@@ -30,10 +30,22 @@ async function main() {
         if (pending.length && !args.includes('--allow-pending')) throw new Error('Apply pending migrations before accepting this release');
         if (!pending.length && !extension.installed_version) throw new Error('Required btree_gist extension is not installed');
         if (!pending.length) {
-            for (const table of ['users','refresh_tokens','parkings','parking_floors','parking_slots','customers','rental_contracts','contract_events']) {
+            for (const table of ['users','user_profiles','refresh_tokens','parkings','parking_floors','parking_slots','customers','rental_contracts','contract_events']) {
                 const present = (await client.query('SELECT to_regclass($1) IS NOT NULL AS present', [`public.${table}`])).rows[0].present;
                 if (!present) throw new Error(`Required table is missing: ${table}`);
             }
+            const profilesInvalid = (await client.query(`SELECT EXISTS (
+                SELECT 1 FROM public.users u FULL JOIN public.user_profiles p ON p.user_id = u.id
+                WHERE u.id IS NULL OR p.user_id IS NULL OR
+                    (u.username, u.phone_number, u.name, u.family_name)
+                    IS DISTINCT FROM (p.username, p.phone_number, p.name, p.family_name)
+            ) AS invalid`)).rows[0].invalid;
+            if (profilesInvalid) throw new Error('User profiles are missing or differ from account details');
+            const profileTrigger = (await client.query(`SELECT EXISTS (
+                SELECT 1 FROM pg_trigger WHERE tgrelid='public.users'::regclass
+                AND tgname='users_sync_profile' AND tgenabled='O' AND NOT tgisinternal
+            ) AS present`)).rows[0].present;
+            if (!profileTrigger) throw new Error('User profile synchronization trigger is missing or disabled');
             const unsafe = (await client.query(`SELECT EXISTS(SELECT 1 FROM public.rental_contracts c
                 JOIN public.parkings p ON p.id=c.parking_id JOIN public.parking_slots s ON s.id=c.slot_id
                 JOIN public.parking_floors f ON f.id=s.floor_id JOIN public.customers cu ON cu.id=c.customer_id

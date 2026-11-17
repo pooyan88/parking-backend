@@ -5,6 +5,7 @@ erDiagram
     USERS ||--o{ PARKINGS : owns
     USERS ||--o{ CUSTOMERS : manages
     USERS ||--o{ REFRESH_TOKENS : authenticates
+    USERS ||--|| USER_PROFILES : has
     PARKINGS ||--o{ PARKING_FLOORS : contains
     PARKING_FLOORS ||--o{ PARKING_SLOTS : contains
     CUSTOMERS ||--o{ RENTAL_CONTRACTS : signs
@@ -20,6 +21,10 @@ of trusting separate IDs from a client.
 Existing users and refresh_tokens retain their IDs and authentication data.
 Users have optional `name` and `family_name` columns (`VARCHAR(255)`, migration
 013). Signup and login return `کاربر جدید` for each null name field.
+User profiles (migration 014) copy these shared account fields plus username
+and phone number, with `user_id` as a primary/foreign key. A users trigger creates
+and synchronizes the profile atomically; API writes target users so authentication
+and profiles agree. See the [profile guide](profile.md).
 Parkings require an owner; floors point to a lot; slots point to the combined
 lot/floor key. Slot codes use a unique index on (parking_id, LOWER(code)).
 Floor numbers are unique per lot. Archiving preserves rows and keeps those
