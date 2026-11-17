@@ -11,6 +11,11 @@ const { runMigrations } = require('../Database/migrationRunner');
 const connectionString = process.env.PARKING_TEST_DATABASE_URL;
 const quiet = { log() {} };
 
+// PostgreSQL 18 reports restrict_violation separately from foreign_key_violation.
+function restrictViolation(constraint) {
+    return error => ['23001', '23503'].includes(error.code) && error.constraint === constraint;
+}
+
 test('parking migrations with real PostgreSQL', { skip: !connectionString }, async t => {
     const maintenanceUrl = new URL(connectionString);
     assert.ok(['postgres:', 'postgresql:'].includes(maintenanceUrl.protocol),
@@ -79,7 +84,7 @@ test('parking migrations with real PostgreSQL', { skip: !connectionString }, asy
         await assert.rejects(pool.query("INSERT INTO public.parkings (name, owner_id) VALUES ('Missing user', 999)"), { code: '23503' });
         await addUser(pool, 42);
         await pool.query("INSERT INTO public.parkings (name, owner_id) VALUES ('Owned lot', 42)");
-        await assert.rejects(pool.query('DELETE FROM public.users WHERE id = 42'), { code: '23503' });
+        await assert.rejects(pool.query('DELETE FROM public.users WHERE id = 42'), restrictViolation('parkings_owner_id_fkey'));
         const index = await pool.query("SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'parkings_owner_id_idx'");
         assert.equal(index.rowCount, 1);
         await runOwnership(pool);
@@ -229,6 +234,7 @@ test('parking migrations with real PostgreSQL', { skip: !connectionString }, asy
         const appPool = require('../Database/db');
         const controller = require('../Controller/parkingController');
         context.mock.method(appPool, 'query', (sql, values) => pool.query(sql, values));
+        context.mock.method(appPool, 'connect', () => pool.connect());
         function response() {
             return { statusCode: 200, status(code) { this.statusCode = code; return this; },
                 json(body) { this.body = body; return this; },
@@ -326,7 +332,7 @@ test('parking migrations with real PostgreSQL', { skip: !connectionString }, asy
             VALUES ($1, 0)`, [2147483647]), { code: '23503' });
         await assert.rejects(pool.query(`INSERT INTO public.parking_floors (parking_id, floor_number)
             VALUES ($1, -1)`, [owned.id]), { code: '23505' });
-        await assert.rejects(pool.query('DELETE FROM public.parkings WHERE id = $1', [owned.id]), { code: '23503' });
+        await assert.rejects(pool.query('DELETE FROM public.parkings WHERE id = $1', [owned.id]), restrictViolation('parking_floors_parking_id_fkey'));
 
         await pool.query('UPDATE public.parking_floors SET archived_at = NOW() WHERE parking_id = $1 AND floor_number = 0', [owned.id]);
         assert.deepEqual((await list(owned)).body.map(row => row.floor_number), [-1, 1, 2]);
@@ -599,7 +605,7 @@ test('parking migrations with real PostgreSQL', { skip: !connectionString }, asy
         }
         await assert.rejects(pool.query(`INSERT INTO public.parking_slots (parking_id, floor_id, code, operational_status)
             VALUES ($1, $2, 'Invalid state', 'occupied')`, [owned.id, ground.id]), { code: '23514' });
-        await assert.rejects(pool.query('DELETE FROM public.parking_floors WHERE id = $1', [basement.id]), { code: '23503' });
+        await assert.rejects(pool.query('DELETE FROM public.parking_floors WHERE id = $1', [basement.id]), restrictViolation('parking_slots_parking_floor_fkey'));
 
         await pool.query('UPDATE public.parking_slots SET archived_at = NOW() WHERE id = $1', [first.id]);
         assert.deepEqual((await list(owned.id, basement.id)).body.map(row => row.code), ['B-101']);
@@ -617,6 +623,88 @@ test('parking migrations with real PostgreSQL', { skip: !connectionString }, asy
         assert.equal((await list(second.id, secondFloor.id)).statusCode, 404);
         assert.equal((await create(second.id, secondFloor.id, 'New code')).statusCode, 404);
         assert.deepEqual((await pool.query('SELECT * FROM public.parking_slots ORDER BY id')).rows, beforeArchive);
+    });
+
+    await t.test('slot ranges preserve numeric order and create every slot or none', async context => {
+        const pool = await fixture(context);
+        await runMigrations(pool, 'up', quiet);
+        await addUser(pool, 42);
+        await addUser(pool, 99);
+        const [owned, second, other] = (await pool.query(`INSERT INTO public.parkings (name, owner_id)
+            VALUES ('Range lot', 42), ('Second range lot', 42), ('Other owner range lot', 99) RETURNING id`)).rows;
+        const [firstFloor, nextFloor, secondFloor, foreignFloor] = (await pool.query(`
+            INSERT INTO public.parking_floors (parking_id, floor_number)
+            VALUES ($1, 0), ($1, 1), ($2, 0), ($3, 0) RETURNING id`,
+            [owned.id, second.id, other.id])).rows;
+        const appPool = require('../Database/db');
+        const slots = require('../Controller/parkingSlotController');
+        context.mock.method(appPool, 'connect', () => pool.connect());
+        context.mock.method(console, 'error', () => {});
+        async function create(start, end, { parkingId = owned.id, floorId = firstFloor.id, owner = '42' } = {}) {
+            const res = { statusCode: 200, status(code) { this.statusCode = code; return this; },
+                json(body) { this.body = body; return this; } };
+            await slots.createSlots({ user: { id: owner }, params: {
+                parkingId: String(parkingId), floorId: String(floorId)
+            }, body: { start_code: start, end_code: end } }, res);
+            return res;
+        }
+        async function stored() {
+            return (await pool.query('SELECT * FROM public.parking_slots ORDER BY id')).rows;
+        }
+
+        const numbers = await create(' 8 ', ' 12 ');
+        assert.equal(numbers.statusCode, 201);
+        assert.equal(numbers.body.count, 5);
+        assert.deepEqual(numbers.body.slots.map(slot => slot.code), ['8', '9', '10', '11', '12']);
+        for (const slot of numbers.body.slots) {
+            assert.equal(slot.parking_id, owned.id);
+            assert.equal(slot.floor_id, firstFloor.id);
+            assert.equal(slot.operational_status, 'usable');
+            assert.equal(slot.maintenance_note, null);
+            assert.ok(slot.created_at instanceof Date);
+        }
+        assert.equal(new Set(numbers.body.slots.map(slot => slot.id)).size, 5);
+        assert.deepEqual((await stored()).map(({ archived_at, ...slot }) => slot), numbers.body.slots);
+
+        const padded = await create('A-008', 'A-012');
+        assert.equal(padded.statusCode, 201);
+        assert.deepEqual(padded.body.slots.map(slot => slot.code), ['A-008', 'A-009', 'A-010', 'A-011', 'A-012']);
+        const single = await create('B1', 'B1');
+        assert.equal(single.statusCode, 201);
+        assert.equal(single.body.count, 1);
+        assert.deepEqual(single.body.slots.map(slot => slot.code), ['B1']);
+        assert.equal((await create('8', '12', { parkingId: second.id, floorId: secondFloor.id })).statusCode, 201);
+
+        const beforeDenials = await stored();
+        for (const parents of [
+            { parkingId: owned.id, floorId: secondFloor.id },
+            { parkingId: other.id, floorId: foreignFloor.id },
+            { parkingId: owned.id, floorId: firstFloor.id, owner: '99' },
+            { parkingId: owned.id, floorId: 2147483647 }
+        ]) {
+            const denied = await create('Denied1', 'Denied3', parents);
+            assert.equal(denied.statusCode, 404);
+            assert.deepEqual(denied.body, { message: 'Parking floor not found' });
+        }
+        assert.deepEqual(await stored(), beforeDenials);
+
+        // A conflict in the middle must roll back the otherwise free endpoints,
+        // including conflicts on another floor or with an archived slot.
+        for (const [prefix, archived] of [['Conflict-', false], ['Archived-', true]]) {
+            await pool.query(`INSERT INTO public.parking_slots (parking_id, floor_id, code, archived_at)
+                VALUES ($1, $2, $3, $4)`, [owned.id, nextFloor.id, `${prefix.toLowerCase()}10`, archived ? new Date() : null]);
+            const beforeConflict = await stored();
+            assert.equal((await create(`${prefix}8`, `${prefix}12`)).statusCode, 409);
+            assert.deepEqual(await stored(), beforeConflict);
+        }
+
+        const concurrent = await Promise.all([create('Race-1', 'Race-3'), create('race-3', 'race-5')]);
+        assert.deepEqual(concurrent.map(res => res.statusCode).sort(), [201, 409]);
+        const winner = concurrent.find(res => res.statusCode === 201);
+        const raced = (await pool.query(`SELECT code FROM public.parking_slots
+            WHERE parking_id = $1 AND LOWER(code) LIKE 'race-%' ORDER BY id`, [owned.id])).rows;
+        assert.deepEqual(raced.map(slot => slot.code), winner.body.slots.map(slot => slot.code));
+        assert.equal(raced.length, 3);
     });
 
     await t.test('slot updates preserve identity and enforce maintenance rules and code uniqueness', async context => {

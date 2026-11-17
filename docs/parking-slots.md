@@ -1,11 +1,45 @@
 # Create and list parking slots
 
-Run `npm run db:migrate` locally to apply migration 009, then restart the API.
+The slots table requires migration 009. Range creation uses that existing schema
+and adds no migration; deploy the updated API after applying any pending migrations.
 Both endpoints require `Authorization: Bearer <access_token>`.
 
 ## Create
 
 `POST /parkings/:parkingId/floors/:floorId/slots`
+
+Create an inclusive range on the floor in the URL:
+
+```json
+{
+  "start_code": "A-001",
+  "end_code": "A-010"
+}
+```
+
+This creates ten separate slots, `A-001` through `A-010`. Send either
+`start_code` and `end_code` together, or the existing single-slot `code` body.
+Combining both forms or sending extra fields returns `400`.
+
+Range rules:
+
+- Both endpoints must be strings, non-empty after trimming, at most 255 Unicode
+  characters, and without null characters. Their stored spelling is preserved.
+- Codes must end in ASCII digits (`0`–`9`). Any prefix must contain no digits
+  and match exactly at both ends, including case. Numeric-only ranges such as
+  `"1"` to `"100"` and prefixed ranges such as `"A1"` to `"A100"` are accepted.
+- The starting number must be no greater than the ending number. Zero and
+  equal endpoints are allowed. Each request may create at most 1,000 slots.
+- If either numeric suffix is zero-padded, both suffixes must have the same
+  width: `"A-001"` to `"A-010"` is valid; `"A-001"` to `"A-10"` is rejected.
+  Unpadded ranges may cross a width boundary, such as `"9"` to `"10"`.
+
+Range success returns `201` with `message: "Parking slots created successfully"`,
+`count`, and `slots`. The array contains all created slots in numeric range
+order, with the same fields shown in the single-slot response below. Even a
+range with equal endpoints uses this response shape.
+
+### Single-slot compatibility
 
 ```json
 {
@@ -13,8 +47,12 @@ Both endpoints require `Authorization: Bearer <access_token>`.
 }
 ```
 
-Only `code` is accepted. It must be non-empty text after trimming, up to 255
+For a single slot, only `code` is accepted. It must be non-empty text after trimming, up to 255
 Unicode characters, without null characters. The stored spelling is preserved.
+Single-slot codes keep their existing validation and need not end in a number.
+
+### Ownership and conflicts
+
 The database compares codes using `LOWER`, so `A-101` and `a-101` conflict
 inside the same lot, even on different floors. Another lot can use that code.
 Codes on archived slots or archived floors remain reserved within the lot.
@@ -22,7 +60,7 @@ Codes on archived slots or archived floors remain reserved within the lot.
 The lot and floor come from the URL. The owner comes from the verified token.
 Extra body fields such as IDs, ownership, status, and availability are rejected.
 
-Success returns `201`:
+Single-slot success returns `201`:
 
 ```json
 {
@@ -51,7 +89,8 @@ the owner; their status is returned in the response.
 - `401`: missing, invalid, or expired access token.
 - `404`: missing or archived parent, another owner, or a floor outside the lot
   in the URL. All return `Parking floor not found`.
-- `409`: code already exists in the same lot.
+- `409`: at least one code already exists in the same lot; no slots from the
+  request are created.
 - `500`: unexpected database failure, without database details.
 
 ## Schema and ownership
@@ -60,6 +99,8 @@ the owner; their status is returned in the response.
 operational status, optional maintenance note, creation time, and archive time.
 Creation time is required and defaults to database time. Timestamps use
 `TIMESTAMPTZ`. Existing user, token, parking, and floor rows are unchanged.
+Range creation stores one row for each generated code, so existing rentals,
+maintenance controls, and availability calculations continue to use slot IDs.
 
 The combined foreign key `(parking_id, floor_id)` references the matching pair
 on `parking_floors`. This prevents a slot's parking and floor from disagreeing.
@@ -79,7 +120,9 @@ There is no slot owner field. Every API query checks ownership through the lot.
 
 Creation uses one connection and a transaction. It locks the active owned lot,
 then the active floor in that lot, then inserts. This order coordinates with
-parent archiving. Failure rolls back; a failed rollback removes the connection
+parent archiving. A range is inserted in one transaction: any conflicting code
+or other failure rolls back every slot in the request. Conflicts include codes
+reserved by other floors and archived slots. A failed rollback removes the connection
 from the pool. Database uniqueness also protects concurrent code creation.
 
 `operational_status` describes physical condition: `usable` or `maintenance`.

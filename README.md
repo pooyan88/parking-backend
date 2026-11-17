@@ -3,7 +3,7 @@
 JavaScript, Express, PostgreSQL, parameterized SQL, JWT access/refresh tokens,
 and tracked migrations. No new ORM or web framework was introduced.
 
-Implemented: owner-scoped parking/floor/slot management and soft deletion;
+Implemented: owner-scoped parking/floor/slot management, slot range creation, and soft deletion;
 maintenance; owner-level customers; rental contracts with database overlap
 protection; cancellation, early ending, extension, renewal, and slot changes;
 period availability; calculated expiry/durations; owner and floor statistics.
@@ -42,7 +42,7 @@ All business routes require `Authorization: Bearer <access_token>`.
 | `/parkings/:id` | GET, PATCH, DELETE | Detail, edit, archive |
 | `/parkings/:parkingId/floors` | GET, POST | Floors in an active owned lot |
 | `/parkings/:parkingId/floors/:floorId` | PATCH, DELETE | Edit/archive a floor |
-| `/parkings/:parkingId/floors/:floorId/slots` | GET, POST | Slots in an active owned floor |
+| `/parkings/:parkingId/floors/:floorId/slots` | GET, POST | List slots; create one slot or an inclusive range |
 | `/parkings/:parkingId/floors/:floorId/slots/:slotId` | PATCH, DELETE | Code/maintenance; archive |
 | `/customers` | GET, POST | Owner's active customers; create |
 | `/customers/:id` | GET, PATCH, DELETE | Detail, edit, archive |
@@ -62,6 +62,15 @@ Signup accepts optional `name` and `family_name` fields. Signup and login return
 `کاربر جدید` for each missing name. See the [user name guide](docs/authentication.md).
 The authenticated [profile API](docs/profile.md) reads the current user's details
 and updates phone number and names; username is read-only.
+
+Create a slot range with `POST /parkings/:parkingId/floors/:floorId/slots` and
+`{ "start_code": "A-001", "end_code": "A-010" }`. Endpoints must have matching
+prefixes and ascending numeric suffixes; each request creates up to 1,000 slots
+atomically. Success returns `201` with `count` and `slots`; a duplicate code
+returns `409` without creating any slots. The existing `{ "code": "A-101" }`
+body and single-slot response remain supported. See the
+[slot creation guide](docs/parking-slots.md) for validation and response details.
+Range creation needs no new database migration.
 
 Customer/contract/event/availability lists use limit/offset (default 100,
 maximum 200). Contract lists support parking_id, customer_id, status, and

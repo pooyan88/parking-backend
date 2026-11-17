@@ -1,6 +1,6 @@
 const pool = require('../Database/db');
 const { parseParkingId } = require('../Utils/parkingValidation');
-const { validateParkingSlot } = require('../Utils/parkingSlotValidation');
+const { validateParkingSlot, validateParkingSlotCreation } = require('../Utils/parkingSlotValidation');
 const { transaction } = require('../Database/transaction');
 const { HttpError, sendError } = require('../Utils/httpErrors');
 const { assertNoBookings } = require('../Service/rentalGuards');
@@ -38,13 +38,13 @@ const parkingSlotController = {
         }
     },
 
-    createSlot: async (req, res) => {
+    createSlots: async (req, res) => {
         const parkingId = parseParkingId(req.params?.parkingId);
         const floorId = parseParkingId(req.params?.floorId);
         if (parkingId === null || floorId === null) {
             return res.status(400).json({ message: 'Parking ID and floor ID must be positive integers up to 2147483647' });
         }
-        const details = validateParkingSlot(req.body);
+        const details = validateParkingSlotCreation(req.body);
         if (details.error) return res.status(400).json({ message: details.error });
 
         let client;
@@ -78,7 +78,19 @@ const parkingSlotController = {
                 return res.status(404).json({ message: 'Parking floor not found' });
             }
 
-            const result = await client.query(
+            const result = details.isRange ? await client.query(
+                `WITH requested AS (
+                    SELECT code, ordinal FROM unnest($3::text[]) WITH ORDINALITY AS codes(code, ordinal)
+                 ), inserted AS (
+                    INSERT INTO public.parking_slots (parking_id, floor_id, code)
+                    SELECT $1, $2, code FROM requested ORDER BY ordinal
+                    RETURNING id, parking_id, floor_id, code, operational_status, maintenance_note, created_at
+                 )
+                 SELECT inserted.* FROM inserted
+                 JOIN requested ON requested.code = inserted.code
+                 ORDER BY requested.ordinal`,
+                [parkingId, floorId, details.codes]
+            ) : await client.query(
                 `INSERT INTO public.parking_slots (parking_id, floor_id, code)
                  VALUES ($1, $2, $3)
                  RETURNING id, parking_id, floor_id, code, operational_status, maintenance_note, created_at`,
@@ -86,6 +98,9 @@ const parkingSlotController = {
             );
             await client.query('COMMIT');
             transactionStarted = false;
+            if (details.isRange) {
+                return res.status(201).json({ message: 'Parking slots created successfully', count: result.rows.length, slots: result.rows });
+            }
             return res.status(201).json({ message: 'Parking slot created successfully', slot: result.rows[0] });
         } catch (error) {
             if (client && transactionStarted) {
@@ -228,5 +243,8 @@ const parkingSlotController = {
         } catch (error) { return sendError(res, error); }
     }
 };
+
+// Keep the existing controller entry point for single-slot callers.
+parkingSlotController.createSlot = parkingSlotController.createSlots;
 
 module.exports = parkingSlotController;
