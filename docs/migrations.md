@@ -42,7 +42,7 @@ by `db:migrate`; use the verified baseline instead.
 
 ## Future features
 
-Add a SQL file such as `migrations/013_describe_next_change.sql`. Use consecutive
+Add a SQL file such as `migrations/014_describe_next_change.sql`. Use consecutive
 three-digit numbers and lowercase names with underscores. No new package or
 ORM is needed. That filename is an example; create it only for an approved change.
 

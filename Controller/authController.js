@@ -17,7 +17,7 @@ const authController = {
 
     signup: async (req, res) => {
         try {
-            const { username, phone_number, password } = req.body ?? {};
+            const { username, phone_number, password, name, family_name } = req.body ?? {};
 
             if (
                 typeof username !== 'string' ||
@@ -32,17 +32,31 @@ const authController = {
                 });
             }
 
+            for (const [field, value] of Object.entries({ name, family_name })) {
+                if (value != null && (typeof value !== 'string' ||
+                    [...value.trim()].length > 255 || value.includes('\0'))) {
+                    return res.status(400).json({
+                        message: `${field} must be text up to 255 characters or null`
+                    });
+                }
+            }
+
             const passwordHash = await bcrypt.hash(password, 12);
 
             const result = await pool.query(
                 `INSERT INTO users (
                     username,
                     phone_number,
-                    password_hash
+                    password_hash,
+                    name,
+                    family_name
                 )
-                VALUES ($1, $2, $3)
-                RETURNING id, username, phone_number, created_at`,
-                [username.trim(), phone_number.trim(), passwordHash]
+                VALUES ($1, $2, $3, $4, $5)
+                RETURNING id, username, phone_number, created_at,
+                    COALESCE(name, 'کاربر جدید') AS name,
+                    COALESCE(family_name, 'کاربر جدید') AS family_name`,
+                [username.trim(), phone_number.trim(), passwordHash,
+                    name?.trim() || null, family_name?.trim() || null]
             );
 
             return res.status(201).json({
@@ -85,7 +99,9 @@ const authController = {
             }
 
             const result = await pool.query(
-                `SELECT id, username, password_hash
+                `SELECT id, username, password_hash,
+                    COALESCE(name, 'کاربر جدید') AS name,
+                    COALESCE(family_name, 'کاربر جدید') AS family_name
                  FROM users
                  WHERE username = $1`,
                 [username.trim()]
@@ -128,7 +144,9 @@ const authController = {
                 message: 'Login successful',
                 user: {
                     id: user.id,
-                    username: user.username
+                    username: user.username,
+                    name: user.name,
+                    family_name: user.family_name
                 },
                 access_token: accessToken,
                 refresh_token: refreshToken,

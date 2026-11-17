@@ -32,13 +32,15 @@ failure if configuration is absent, so acceptance cannot silently skip tests.
 
 ## Migration compatibility
 
-Review migrations 010–012 for this final batch:
+Review migrations 010–013 for this final batch:
 
 - 010: adds customers; no existing account data changes.
 - 011: installs trusted btree_gist if missing; adds the lot timezone default
   Asia/Tehran and a combined unique key; creates contracts, events, and a read
   view. Requires database CREATE permission or prior extension installation.
 - 012: adds the active-contract reporting index.
+- 013: adds nullable user `name` and `family_name` columns. Apply before starting
+  the updated signup/login code; existing credentials and sessions are preserved.
 
 001–009 remain unchanged. A server without schema_migrations needs verified
 baseline adoption before new migrations; never rerun original scripts blindly.

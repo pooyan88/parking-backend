@@ -18,6 +18,8 @@ foreign keys prove that related records agree on their owner or lot, instead
 of trusting separate IDs from a client.
 
 Existing users and refresh_tokens retain their IDs and authentication data.
+Users have optional `name` and `family_name` columns (`VARCHAR(255)`, migration
+013). Signup and login return `کاربر جدید` for each null name field.
 Parkings require an owner; floors point to a lot; slots point to the combined
 lot/floor key. Slot codes use a unique index on (parking_id, LOWER(code)).
 Floor numbers are unique per lot. Archiving preserves rows and keeps those
